@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chat Test Client</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --text:#1d2330; --muted:#667085; --line:#d9dde3; --accent:#2f6fde; --me:#e7efff; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#14171c; --card:#1d2129; --text:#e6e8ec; --muted:#9aa3b2; --line:#30353f; --accent:#6c9cff; --me:#23324f; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.45 system-ui, sans-serif; background:var(--bg); color:var(--text); }
+  main { max-width: 860px; margin: 0 auto; padding: 24px 16px; display:grid; gap:16px; }
+  h1 { font-size: 20px; margin: 0; }
+  section { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; display:grid; gap:10px; }
+  h2 { font-size: 14px; margin:0; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  input, select { flex:1 1 180px; padding:8px 10px; border:1px solid var(--line); border-radius:6px; background:transparent; color:var(--text); font:inherit; min-width:0; }
+  button { padding:8px 14px; border:0; border-radius:6px; background:var(--accent); color:#fff; font:inherit; cursor:pointer; }
+  button.secondary { background:transparent; color:var(--accent); border:1px solid var(--accent); }
+  #log { height: 340px; overflow-y:auto; border:1px solid var(--line); border-radius:6px; padding:10px; display:flex; flex-direction:column; gap:6px; }
+  .msg { padding:6px 10px; border-radius:8px; max-width:85%; word-wrap:break-word; }
+  .msg.mine { background:var(--me); align-self:flex-end; }
+  .msg.theirs { border:1px solid var(--line); }
+  .sys { color:var(--muted); font-size:13px; }
+  .meta { font-size:12px; color:var(--muted); }
+  code { font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>PowerPioneer WebSocket chat test client</h1>
+
+  <section>
+    <h2>1. Log in</h2>
+    <div class="row">
+      <input id="email" type="email" placeholder="email" value="admin@powerpioneer.local">
+      <input id="password" type="password" placeholder="password" value="Admin@12345">
+      <button id="login">Get token</button>
+    </div>
+    <div class="sys" id="who">Not logged in.</div>
+  </section>
+
+  <section>
+    <h2>2. Connect</h2>
+    <div class="row">
+      <select id="mode">
+        <option value="room">Room</option>
+        <option value="direct">Direct (employee id)</option>
+      </select>
+      <input id="target" placeholder="room name or employee UUID" value="general">
+      <button id="connect">Connect</button>
+      <button id="disconnect" class="secondary">Disconnect</button>
+    </div>
+    <div class="row">
+      <button id="notif" class="secondary">Listen to notifications</button>
+      <span class="sys">Endpoint: <code id="endpoint">-</code></span>
+    </div>
+  </section>
+
+  <section>
+    <h2>3. Chat</h2>
+    <div id="log"></div>
+    <div class="row">
+      <input id="message" placeholder="Type a message and press Enter">
+      <button id="send">Send</button>
+    </div>
+  </section>
+</main>
+<script>
+  const $ = (id) => document.getElementById(id);
+  let token = null, me = null, ws = null, notifWs = null, typingTimer = null;
+
+  function line(text, cls = "sys") {
+    const div = document.createElement("div");
+    div.className = cls;
+    div.textContent = text;
+    $("log").appendChild(div);
+    $("log").scrollTop = $("log").scrollHeight;
+  }
+
+  function chatLine(evt) {
+    const mine = me && evt.sender.employee_id === me.employee_id;
+    const div = document.createElement("div");
+    div.className = "msg " + (mine ? "mine" : "theirs");
+    const meta = document.createElement("div");
+    meta.className = "meta";
+    meta.textContent = `${evt.sender.full_name} · ${new Date(evt.timestamp).toLocaleTimeString()}`;
+    const body = document.createElement("div");
+    body.textContent = evt.message;
+    div.append(meta, body);
+    $("log").appendChild(div);
+    $("log").scrollTop = $("log").scrollHeight;
+  }
+
+  const wsBase = () => (location.protocol === "https:" ? "wss://" : "ws://") + location.host;
+
+  $("login").onclick = async () => {
+    const res = await fetch("/api/auth/token/", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: $("email").value, password: $("password").value }),
+    });
+    const data = await res.json();
+    if (!res.ok) { $("who").textContent = "Login failed: " + JSON.stringify(data); return; }
+    token = data.access; me = data.employee;
+    $("who").textContent = `Logged in as ${me.full_name} (${me.employee_id})`;
+  };
+
+  $("connect").onclick = () => {
+    if (!token) { line("Log in first."); return; }
+    if (ws) ws.close();
+    const target = $("target").value.trim();
+    const path = $("mode").value === "room" ? `/ws/chat/${target}/` : `/ws/chat/direct/${target}/`;
+    $("endpoint").textContent = path + "?token=…";
+    ws = new WebSocket(wsBase() + path + "?token=" + encodeURIComponent(token));
+    ws.onopen = () => line("Connected to " + path);
+    ws.onclose = (e) => line(`Disconnected (code ${e.code}${e.code === 4001 ? " not authenticated" : e.code === 4003 ? " not allowed" : e.code === 4004 ? " employee not found" : ""})`);
+    ws.onmessage = (e) => {
+      const evt = JSON.parse(e.data);
+      if (evt.type === "message") chatLine(evt);
+      else if (evt.type === "typing") line(`${evt.sender.full_name} is typing…`);
+      else if (evt.type === "join") line(`${evt.sender.full_name} joined`);
+      else if (evt.type === "leave") line(`${evt.sender.full_name} left`);
+      else line(JSON.stringify(evt));
+    };
+  };
+
+  $("disconnect").onclick = () => ws && ws.close();
+
+  $("notif").onclick = () => {
+    if (!token) { line("Log in first."); return; }
+    if (notifWs) notifWs.close();
+    notifWs = new WebSocket(wsBase() + "/ws/notifications/?token=" + encodeURIComponent(token));
+    notifWs.onopen = () => line("Listening for notifications");
+    notifWs.onmessage = (e) => line("🔔 " + e.data);
+  };
+
+  function send() {
+    const text = $("message").value.trim();
+    if (!text || !ws || ws.readyState !== 1) return;
+    ws.send(JSON.stringify({ type: "message", message: text }));
+    $("message").value = "";
+  }
+  $("send").onclick = send;
+  $("message").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { send(); return; }
+    if (ws && ws.readyState === 1 && !typingTimer) {
+      ws.send(JSON.stringify({ type: "typing" }));
+      typingTimer = setTimeout(() => (typingTimer = null), 2000);
+    }
+  });
+</script>
+</body>
+</html>
