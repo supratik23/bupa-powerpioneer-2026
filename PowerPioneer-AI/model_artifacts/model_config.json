@@ -1,0 +1,143 @@
+{
+  "model_version": "shiftguard-xgb-20261117-132141",
+  "trained_at_utc": "2026-11-17T13:21:41.021959+00:00",
+  "target": "risk_outcome_within_30d",
+  "feature_names": [
+    "contracted_hours_30d",
+    "actual_hours_worked_30d",
+    "overtime_hours_30d",
+    "overtime_ratio_30d",
+    "night_shifts_30d",
+    "long_shifts_30d",
+    "max_consecutive_work_days",
+    "max_consecutive_night_shifts",
+    "minimum_rest_hours_between_shifts",
+    "short_notice_roster_changes_30d",
+    "missed_breaks_30d",
+    "unplanned_absence_days_90d",
+    "unplanned_absence_episodes_90d",
+    "late_arrivals_30d",
+    "days_since_last_meaningful_leave",
+    "cancelled_or_rejected_leave_90d",
+    "understaffed_shift_ratio_30d",
+    "average_patient_load_ratio_30d",
+    "redeployments_90d",
+    "wellbeing_score",
+    "days_since_maternity_return",
+    "return_schedule_variance_hours_30d",
+    "overtime_hours_since_maternity_return",
+    "maternity_adjustments_fulfilment_ratio",
+    "nursing_or_recovery_breaks_missed_30d",
+    "end_of_life_care_7d"
+  ],
+  "maternity_features_null_means_not_applicable": [
+    "days_since_maternity_return",
+    "return_schedule_variance_hours_30d",
+    "overtime_hours_since_maternity_return",
+    "maternity_adjustments_fulfilment_ratio",
+    "nursing_or_recovery_breaks_missed_30d"
+  ],
+  "training_rows": 1120,
+  "training_employees": 20,
+  "training_positive_rate": 0.09732142857142857,
+  "scale_pos_weight": 9.275229357798166,
+  "calibration": {
+    "method": "platt",
+    "a": 0.635891600534506,
+    "b": -0.9178577809589598,
+    "fitted_on": "grouped out-of-fold predictions (unseen employees)",
+    "formula": "p = 1 / (1 + exp(-(a * ln(raw / (1 - raw)) + b)))"
+  },
+  "suggested_alert_threshold": {
+    "probability": 0.15443003953770426,
+    "target_recall": 0.8
+  },
+  "classification_threshold_raw": 0.5,
+  "risk_bands": [
+    {
+      "band": "LOW",
+      "min_probability": 0.0
+    },
+    {
+      "band": "MEDIUM",
+      "min_probability": 0.3
+    },
+    {
+      "band": "HIGH",
+      "min_probability": 0.6
+    },
+    {
+      "band": "CRITICAL",
+      "min_probability": 0.8
+    }
+  ],
+  "risk_bands_note": "Prototype application thresholds on calibrated probability; NOT clinically validated.",
+  "top_k_factors": 5,
+  "shap_units": "log_odds",
+  "xgb_params": {
+    "n_estimators": 300,
+    "max_depth": 3,
+    "learning_rate": 0.05,
+    "subsample": 0.8,
+    "colsample_bytree": 0.8,
+    "min_child_weight": 5,
+    "reg_lambda": 1.0,
+    "objective": "binary:logistic",
+    "eval_metric": "aucpr",
+    "tree_method": "hist",
+    "random_state": 42,
+    "n_jobs": -1
+  },
+  "library_versions": {
+    "xgboost": "3.4.1",
+    "scikit-learn": "1.9.1",
+    "pandas": "3.1.1"
+  },
+  "evaluation": {
+    "heldout_test_4_employees": {
+      "rows": 224.0,
+      "positives": 33.0,
+      "positive_rate": 0.14732142857142858,
+      "roc_auc": 0.9712835157861337,
+      "pr_auc": 0.8858037881272385,
+      "precision": 0.6842105263157895,
+      "recall": 0.7878787878787878,
+      "f1": 0.7323943661971831,
+      "accuracy (not primary)": 0.9151785714285714,
+      "brier_raw": 0.05357678607106209,
+      "brier_calibrated": 0.056306170080291644,
+      "mean_calibrated_prob": 0.0849176792779029
+    },
+    "grouped_cv_mean": {
+      "roc_auc": 0.933,
+      "pr_auc": 0.556,
+      "precision": 0.47,
+      "recall": 0.603,
+      "f1": 0.515
+    },
+    "grouped_cv_std": {
+      "roc_auc": 0.023,
+      "pr_auc": 0.119,
+      "precision": 0.093,
+      "recall": 0.199,
+      "f1": 0.095
+    },
+    "pooled_out_of_fold": {
+      "rows": 1120.0,
+      "positives": 109.0,
+      "positive_rate": 0.09732142857142857,
+      "roc_auc": 0.9328124574633163,
+      "pr_auc": 0.5725832164820663,
+      "precision": 0.4896551724137931,
+      "recall": 0.6513761467889908,
+      "f1": 0.5590551181102362,
+      "accuracy (not primary)": 0.9,
+      "brier_raw": 0.06893728774112985,
+      "brier_calibrated": 0.06342559006773389,
+      "mean_calibrated_prob": 0.05179980534914927
+    },
+    "pooled_out_of_fold_brier_final_calibration": 0.056977017888410524,
+    "early_warning_employees_caught": "11/12"
+  },
+  "disclaimer": "Trained on synthetic data for a hackathon prototype. Not clinically validated."
+}
