@@ -32,6 +32,7 @@ INSTALLED_APPS = [
     "django_filters",
     "drf_spectacular",
     "channels",
+    "corsheaders",
     # local apps
     "employees",
     "rostering",
@@ -41,6 +42,8 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    # CORS must run before CommonMiddleware so preflight requests get the headers
+    "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -160,3 +163,16 @@ CHANNEL_LAYERS = {"default": {"BACKEND": "channels.layers.InMemoryChannelLayer"}
 # ---------------------------------------------------------------------------
 # Maximum number of employees a single buddy may support at the same time.
 BUDDY_MAX_ASSIGNEES = int(os.environ.get("BUDDY_MAX_ASSIGNEES", "3"))
+
+# ---------------------------------------------------------------------------
+# CORS: lets the separately served frontend (Vite dev server) call the API.
+# Override with a comma-separated list in DJANGO_CORS_ALLOWED_ORIGINS.
+# ---------------------------------------------------------------------------
+CORS_ALLOWED_ORIGINS = [
+    o.strip()
+    for o in os.environ.get(
+        "DJANGO_CORS_ALLOWED_ORIGINS",
+        "http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173",
+    ).split(",")
+    if o.strip()
+]

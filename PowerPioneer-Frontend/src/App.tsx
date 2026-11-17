@@ -1,14 +1,13 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   Activity,
   ArrowDownRight,
   ArrowRight,
   ArrowUpRight,
-  Bell,
   CalendarDays,
   Check,
-  ChevronDown,
   CircleHelp,
+  ChevronDown,
   Clock3,
   Coffee,
   Download,
@@ -18,7 +17,9 @@ import {
   LockKeyhole,
   Menu,
   MessageCircleHeart,
+  MessagesSquare,
   MoreHorizontal,
+  RefreshCw,
   ShieldCheck,
   Sparkles,
   Stethoscope,
@@ -27,24 +28,57 @@ import {
   UsersRound,
   X,
 } from "lucide-react";
+import { api, errorMessage } from "./api/client";
+import type {
+  Employee,
+  Intervention,
+  Question,
+  RiskBand,
+  RiskSnapshot,
+  Shift,
+  WellbeingSummary,
+} from "./api/types";
+import { AuthProvider, useAuth } from "./auth/AuthContext";
+import { NotificationsMenu, ProfileMenu } from "./components/HeaderMenus";
+import { Relations } from "./components/Relations";
+import { ErrorNote, Loading, SuccessNote } from "./components/ui";
+import {
+  avatarColor,
+  featureLabel,
+  formatDate,
+  formatHours,
+  formatTime,
+  greeting,
+  initials,
+  label,
+} from "./lib/format";
+import { usePage } from "./lib/nav";
+import type { PageId } from "./lib/nav";
+import { useAction, useAsync } from "./lib/useAsync";
+import { useEmployees } from "./lib/useEmployees";
+import AuthPage from "./pages/AuthPage";
+import ChatPage from "./pages/ChatPage";
+import type { Conversation } from "./pages/ChatPage";
+import InterventionsPage, { InterventionActions, describeIntervention } from "./pages/InterventionsPage";
+import LeavePage from "./pages/LeavePage";
+import ProfilePage from "./pages/ProfilePage";
+import RosterPage from "./pages/RosterPage";
+import WellbeingPage from "./pages/WellbeingPage";
+import AdminPage from "./pages/admin/AdminPage";
 
 type Role = "employee" | "manager";
 type RiskLevel = "Needs attention" | "Keep an eye" | "Doing well";
-type NudgeCategory =
-  | "Emotional check-in"
-  | "Energy & fatigue"
-  | "Break & recovery"
-  | "Hydration & physical comfort";
+type Tone = "blue" | "amber" | "violet" | "teal";
 
 type Nudge = {
   id: string;
-  category: NudgeCategory;
+  category: string;
   time: string;
   context: string;
   question: string;
   helper: string;
   status: "completed" | "now" | "later";
-  tone: "blue" | "amber" | "violet" | "teal";
+  tone: Tone;
   options: Array<{
     id: string;
     score: number;
@@ -54,21 +88,22 @@ type Nudge = {
 };
 
 type TeamMember = {
-  id: number;
+  id: string;
   name: string;
   initials: string;
   role: string;
+  department: string | null;
   risk: number;
   delta: number;
   level: RiskLevel;
+  band: RiskBand | null;
   factors: string[];
-  hours: number;
-  overtime: number;
-  breaks: number;
   trend: number[];
   color: string;
+  openInterventions: number;
 };
 
+// Static, presentational schedule (the backend stores whole shifts, not appointments).
 const schedule = [
   {
     time: "08:30",
@@ -117,152 +152,94 @@ const schedule = [
   },
 ];
 
-const initialMembers: TeamMember[] = [
-  {
-    id: 1,
-    name: "Alex Morgan",
-    initials: "AM",
-    role: "Senior Care Assistant",
-    risk: 82,
-    delta: 9,
-    level: "Needs attention",
-    factors: ["High overtime for 3 weeks", "Fewer protected breaks"],
-    hours: 51,
-    overtime: 9,
-    breaks: 62,
-    trend: [48, 52, 55, 62, 68, 74, 82],
-    color: "#7c3aed",
-  },
-  {
-    id: 2,
-    name: "Priya Shah",
-    initials: "PS",
-    role: "Registered Nurse",
-    risk: 74,
-    delta: 5,
-    level: "Needs attention",
-    factors: ["4 consecutive shifts", "Workload trend increasing"],
-    hours: 47,
-    overtime: 6,
-    breaks: 71,
-    trend: [45, 48, 51, 56, 62, 69, 74],
-    color: "#1677ff",
-  },
-  {
-    id: 3,
-    name: "Jamie Taylor",
-    initials: "JT",
-    role: "Care Assistant",
-    risk: 56,
-    delta: 3,
-    level: "Keep an eye",
-    factors: ["Rising overtime", "Leave balance below average"],
-    hours: 43,
-    overtime: 3,
-    breaks: 78,
-    trend: [42, 43, 47, 45, 49, 53, 56],
-    color: "#00a69c",
-  },
-  {
-    id: 4,
-    name: "Maria Lewis",
-    initials: "ML",
-    role: "Dental Nurse",
-    risk: 31,
-    delta: -4,
-    level: "Doing well",
-    factors: ["Good break compliance", "Workload remains balanced"],
-    hours: 38,
-    overtime: 0,
-    breaks: 94,
-    trend: [46, 44, 43, 40, 37, 35, 31],
-    color: "#f59e0b",
-  },
-  {
-    id: 5,
-    name: "Tom King",
-    initials: "TK",
-    role: "Care Assistant",
-    risk: 24,
-    delta: -2,
-    level: "Doing well",
-    factors: ["Consistent shift pattern", "Protected breaks taken"],
-    hours: 36,
-    overtime: 0,
-    breaks: 97,
-    trend: [32, 30, 31, 28, 29, 26, 24],
-    color: "#14b8a6",
-  },
+// ---------------------------------------------------------------------------
+// API -> view-model mapping
+// ---------------------------------------------------------------------------
+/** Check-in slots placed around natural pauses in the day (presentation only). */
+const NUDGE_SLOTS: Array<{ time: string; tone: Tone }> = [
+  { time: "08:45", tone: "blue" },
+  { time: "10:30", tone: "amber" },
+  { time: "12:15", tone: "violet" },
+  { time: "14:30", tone: "teal" },
+  { time: "16:00", tone: "blue" },
+  { time: "17:30", tone: "amber" },
 ];
 
-const wellbeingNudges: Nudge[] = [
-  {
-    id: "emotional-morning",
-    category: "Emotional check-in",
-    time: "08:45",
-    context: "Starting your day",
-    question: "How are you feeling?",
-    helper: "Choose the mood that feels closest right now.",
-    status: "now",
-    tone: "blue",
-    options: [
-      { id: "stressed", score: 1, emoji: "😣", title: "Stressed" },
-      { id: "tired", score: 2, emoji: "😴", title: "Tired" },
-      { id: "anxious", score: 1, emoji: "😟", title: "Anxious" },
-      { id: "happy", score: 4, emoji: "😊", title: "Happy" },
-      { id: "calm", score: 3, emoji: "😌", title: "Calm" },
-    ],
-  },
-  {
-    id: "energy-midmorning",
-    category: "Energy & fatigue",
-    time: "10:30",
-    context: "After your morning appointments",
-    question: "How is your energy right now?",
-    helper: "A quick check before the next part of your shift.",
-    status: "later",
-    tone: "amber",
-    options: [
-      { id: "running-low", score: 1, emoji: "🪫", title: "Running low" },
-      { id: "tired", score: 2, emoji: "🥱", title: "A little tired" },
-      { id: "okay", score: 3, emoji: "🙂", title: "Doing okay" },
-      { id: "energised", score: 4, emoji: "⚡", title: "Energised" },
-    ],
-  },
-  {
-    id: "recovery-lunch",
-    category: "Break & recovery",
-    time: "12:15",
-    context: "After a demanding block",
-    question: "That was a demanding block. How are you doing?",
-    helper: "Take a moment before moving into the rest of your day.",
-    status: "later",
-    tone: "violet",
-    options: [
-      { id: "need-break", score: 1, emoji: "🫶", title: "I need a break" },
-      { id: "need-moment", score: 2, emoji: "🌿", title: "Need a moment" },
-      { id: "doing-okay", score: 3, emoji: "🙂", title: "Doing okay" },
-      { id: "ready", score: 4, emoji: "👍", title: "Ready to continue" },
-    ],
-  },
-  {
-    id: "hydration-afternoon",
-    category: "Hydration & physical comfort",
-    time: "14:30",
-    context: "Before your afternoon appointments",
-    question: "What would help you feel more comfortable?",
-    helper: "Choose a small action for the next natural pause.",
-    status: "later",
-    tone: "teal",
-    options: [
-      { id: "water", score: 2, emoji: "💧", title: "Some water" },
-      { id: "stretch", score: 2, emoji: "🙆", title: "A quick stretch" },
-      { id: "sit", score: 2, emoji: "🪑", title: "A short sit" },
-      { id: "comfortable", score: 4, emoji: "✨", title: "I’m comfortable" },
-    ],
-  },
-];
+const TRIGGER_CATEGORY: Record<string, string> = {
+  SCHEDULED: "Wellbeing pulse",
+  RISK_TRIGGERED: "Personal check-in",
+  ONBOARDING: "Settling in",
+  MATERNITY_RETURN: "Return to work",
+  POST_SHIFT: "After your shift",
+  ADHOC: "Quick check-in",
+};
 
+const MOOD_EMOJI = ["😣", "😟", "😐", "🙂", "😊"];
+
+function toNudge(question: Question, index: number, completed: boolean, isFirstPending: boolean): Nudge {
+  const slot = NUDGE_SLOTS[index % NUDGE_SLOTS.length];
+  const scores = question.options.map((o) => o.normalized_score);
+  const min = Math.min(...scores);
+  const max = Math.max(...scores);
+  const short = question.question_text.length > 46 ? `${question.question_text.slice(0, 44)}…` : question.question_text;
+  return {
+    id: question.question_id,
+    category: TRIGGER_CATEGORY[question.trigger_type] ?? "Check-in",
+    time: slot.time,
+    context: short,
+    question: question.question_text,
+    helper: "Choose the option that feels closest right now.",
+    status: completed ? "completed" : isFirstPending ? "now" : "later",
+    tone: slot.tone,
+    options: [...question.options]
+      .sort((a, b) => a.display_order - b.display_order)
+      .map((o) => {
+        const ratio = max === min ? 0.5 : (o.normalized_score - min) / (max - min);
+        return {
+          id: o.option_id ?? `${o.display_order}`,
+          score: o.normalized_score,
+          emoji: MOOD_EMOJI[Math.round(ratio * (MOOD_EMOJI.length - 1))],
+          title: o.option_text,
+        };
+      }),
+  };
+}
+
+function levelFor(band: RiskBand | null): RiskLevel {
+  if (band === "HIGH" || band === "CRITICAL") return "Needs attention";
+  if (band === "MODERATE") return "Keep an eye";
+  return "Doing well";
+}
+
+function toMember(summary: WellbeingSummary, employee: Employee | undefined): TeamMember {
+  const score = summary.latest_wellbeing_score;
+  const risk = score === null ? 0 : Math.round(100 - Number(score));
+  const history = summary.history
+    .filter((h) => h.wellbeing_score !== null)
+    .map((h) => 100 - Number(h.wellbeing_score));
+  const increasing = summary.top_drivers.filter((d) => d.contribution_direction === "INCREASES_RISK");
+  const factors = (increasing.length ? increasing : summary.top_drivers).map((d) => featureLabel(d.feature_name));
+  return {
+    id: summary.employee_id,
+    name: summary.full_name,
+    initials: initials(summary.full_name),
+    role: employee?.job_role ?? "Team member",
+    department: employee?.department ?? null,
+    risk,
+    // Risk change since the previous snapshot (wellbeing trend inverted).
+    delta: summary.trend === null ? 0 : Math.round(-summary.trend),
+    level: levelFor(summary.latest_risk_band),
+    band: summary.latest_risk_band,
+    factors: factors.length ? factors : [score === null ? "Not calculated yet" : "No major risk factors"],
+    trend: history.length ? history : [risk],
+    color: avatarColor(summary.employee_id),
+    openInterventions: summary.open_interventions,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// layout
+// ---------------------------------------------------------------------------
 function BrandMark() {
   return (
     <div className="brand-mark" aria-label="ShiftGuard home">
@@ -280,9 +257,11 @@ function BrandMark() {
 function RoleSwitch({
   role,
   setRole,
+  showTeam,
 }: {
-  role: Role;
+  role: Role | null;
   setRole: (role: Role) => void;
+  showTeam: boolean;
 }) {
   return (
     <div className="role-switch" aria-label="Choose app view">
@@ -293,30 +272,36 @@ function RoleSwitch({
         <UserRound size={16} />
         My shift
       </button>
-      <button
-        className={role === "manager" ? "active" : ""}
-        onClick={() => setRole("manager")}
-      >
-        <UsersRound size={16} />
-        Team view
-      </button>
+      {showTeam && (
+        <button
+          className={role === "manager" ? "active" : ""}
+          onClick={() => setRole("manager")}
+        >
+          <UsersRound size={16} />
+          Team view
+        </button>
+      )}
     </div>
   );
 }
 
 function AppHeader({
-  role,
-  setRole,
+  page,
+  navigate,
+  openDirectChat,
 }: {
-  role: Role;
-  setRole: (role: Role) => void;
+  page: PageId;
+  navigate: (page: PageId) => void;
+  openDirectChat: (employeeId: string, name: string) => void;
 }) {
+  const { isManager } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const role: Role | null = page === "employee" || page === "manager" ? page : null;
   return (
     <header className="app-header">
       <BrandMark />
       <div className="desktop-role-switch">
-        <RoleSwitch role={role} setRole={setRole} />
+        <RoleSwitch role={role} setRole={navigate} showTeam={isManager} />
       </div>
       <div className="header-actions">
         <a
@@ -327,18 +312,8 @@ function AppHeader({
           <Download size={16} />
           <span>Download source</span>
         </a>
-        <button className="icon-button notification-button" aria-label="Notifications">
-          <Bell size={19} />
-          <span />
-        </button>
-        <div className="profile-chip">
-          <div className="avatar avatar-blue">AR</div>
-          <div>
-            <strong>{role === "employee" ? "Amelia Reed" : "Daniel Brooks"}</strong>
-            <span>{role === "employee" ? "Care assistant" : "Team lead"}</span>
-          </div>
-          <ChevronDown size={15} />
-        </div>
+        <NotificationsMenu navigate={navigate} openDirectChat={openDirectChat} />
+        <ProfileMenu page={page} navigate={navigate} />
         <button
           className="icon-button mobile-menu"
           aria-label="Open navigation"
@@ -351,8 +326,9 @@ function AppHeader({
         <div className="mobile-role-panel">
           <RoleSwitch
             role={role}
+            showTeam={isManager}
             setRole={(nextRole) => {
-              setRole(nextRole);
+              navigate(nextRole);
               setMobileOpen(false);
             }}
           />
@@ -432,7 +408,7 @@ function WellbeingPanel({
   open: boolean;
   nudge: Nudge;
   onClose: () => void;
-  onSubmit: (value: number) => void;
+  onSubmit: (optionId: string) => void;
 }) {
   const [selected, setSelected] = useState<string | null>(null);
 
@@ -469,7 +445,7 @@ function WellbeingPanel({
             <div className={`question-icon ${nudge.tone}`}>
               <MessageCircleHeart size={22} />
             </div>
-            <span>{nudge.context}</span>
+            <span>{nudge.category}</span>
             <h2>{nudge.question}</h2>
             <p>{nudge.helper}</p>
           </div>
@@ -483,10 +459,10 @@ function WellbeingPanel({
               <button
                 key={option.id}
                 className={selected === option.id ? "selected" : ""}
-                disabled={selected !== null}
+                disabled={selected !== null || nudge.status === "completed"}
                 onClick={() => {
                   setSelected(option.id);
-                  window.setTimeout(() => onSubmit(option.score), 120);
+                  window.setTimeout(() => onSubmit(option.id), 120);
                 }}
               >
                 <span className="checkin-emoji" aria-hidden="true">
@@ -501,7 +477,9 @@ function WellbeingPanel({
           </div>
           <p className="one-tap-note">
             <Sparkles size={13} />
-            One tap saves your private response and closes this check-in.
+            {nudge.status === "completed"
+              ? "Thanks — you have already answered this check-in."
+              : "One tap saves your private response and closes this check-in."}
           </p>
           <PrivacyNote compact />
         </div>
@@ -524,42 +502,144 @@ function PrivacyNote({ compact = false }: { compact?: boolean }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// employee view ("My shift")
+// ---------------------------------------------------------------------------
+function useMyShifts(employeeId: string) {
+  return useAsync(
+    () =>
+      api.list<Shift>("/shifts/", {
+        employee: employeeId,
+        shift_start__gte: new Date(Date.now() - 24 * 3600 * 1000).toISOString(),
+        ordering: "shift_start",
+      }),
+    [employeeId],
+  );
+}
+
+function shiftSummary(shifts: Shift[]) {
+  const now = new Date();
+  const todayKey = now.toDateString();
+  const current = shifts.find((s) => new Date(s.shift_start) <= now && new Date(s.shift_end) > now);
+  const today = shifts.filter((s) => new Date(s.shift_start).toDateString() === todayKey);
+  const upcoming = shifts.find((s) => new Date(s.shift_start) > now);
+  const focus = current ?? today.find((s) => new Date(s.shift_start) > now) ?? today[today.length - 1] ?? null;
+
+  const range = (s: Shift) => `${formatTime(s.shift_start)}–${formatTime(s.shift_end)}`;
+  const nextLabel = (s: Shift) =>
+    `${new Date(s.shift_start).toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" })}, ${formatTime(s.shift_start)}`;
+
+  if (!focus) {
+    return {
+      status: "No shift today",
+      range: upcoming ? `Next: ${nextLabel(upcoming)}` : "No upcoming shifts",
+      value: "Off today",
+      helper: upcoming ? `Next shift ${nextLabel(upcoming)}` : "No upcoming shifts rostered",
+    };
+  }
+  const start = new Date(focus.shift_start);
+  const end = new Date(focus.shift_end);
+  const hours = Number(focus.planned_hours);
+  if (focus === current) {
+    const done = (now.getTime() - start.getTime()) / 3600000;
+    return {
+      status: "Shift in progress",
+      range: range(focus),
+      value: formatHours(hours),
+      helper: `On track · ${formatHours(Math.max(0, done))} complete`,
+    };
+  }
+  if (start > now) {
+    return {
+      status: "Shift starts soon",
+      range: range(focus),
+      value: formatHours(hours),
+      helper: `${label(focus.shift_type)} shift · starts ${formatTime(start)}`,
+    };
+  }
+  return {
+    status: "Shift complete",
+    range: range(focus),
+    value: formatHours(Number(focus.actual_hours ?? hours)),
+    helper: `Finished at ${formatTime(end)}${upcoming ? ` · next ${nextLabel(upcoming)}` : ""}`,
+  };
+}
+
 function EmployeeView({
   onCheckIn,
+  navigate,
 }: {
-  onCheckIn: (value: number) => void;
+  onCheckIn: () => void;
+  navigate: (page: PageId) => void;
 }) {
+  const { user } = useAuth();
+  const meId = user?.employee_id ?? "";
+  const shifts = useMyShifts(meId);
+  const pending = useAsync(() => api.list<Question>("/questions/pending/"), [meId]);
+  const [answered, setAnswered] = useState<Question[]>([]);
   const [panelOpen, setPanelOpen] = useState(false);
   const [demoIndex, setDemoIndex] = useState<number | null>(null);
-  const [selectedNudge, setSelectedNudge] = useState<Nudge>(wellbeingNudges[0]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [checkInError, setCheckInError] = useState<string | null>(null);
+
+  // Answered-this-session questions stay visible as "Done" until the next load.
+  const wellbeingNudges = useMemo(() => {
+    const open = (pending.data ?? []).filter((q) => q.options.length > 0 && !answered.some((a) => a.question_id === q.question_id));
+    const ordered = [...answered, ...open];
+    return ordered.map((q, i) => toNudge(q, i, i < answered.length, i === answered.length));
+  }, [pending.data, answered]);
+  const pendingNudges = wellbeingNudges.filter((n) => n.status !== "completed");
+  const selectedNudge = wellbeingNudges.find((n) => n.id === selectedId) ?? pendingNudges[0] ?? wellbeingNudges[0];
 
   const openNudge = (nudge: Nudge) => {
-    const nudgeIndex = wellbeingNudges.findIndex(
-      (item) => item.id === nudge.id,
-    );
+    const nudgeIndex = pendingNudges.findIndex((item) => item.id === nudge.id);
     setDemoIndex(nudgeIndex >= 0 ? nudgeIndex : null);
-    setSelectedNudge(nudge);
+    setSelectedId(nudge.id);
     setPanelOpen(true);
   };
 
   const startDemo = () => {
+    if (!pendingNudges.length) return;
     setDemoIndex(0);
-    setSelectedNudge(wellbeingNudges[0]);
+    setSelectedId(pendingNudges[0].id);
     setPanelOpen(true);
   };
+
+  const submitAnswer = async (nudge: Nudge, optionId: string) => {
+    setCheckInError(null);
+    try {
+      await api.post(`/questions/${nudge.id}/answer/`, { option_id: optionId });
+      const question = pending.data?.find((q) => q.question_id === nudge.id);
+      if (question) setAnswered((prev) => [...prev, question]);
+      // Refresh the wellbeing score so the new answer feeds the team signal.
+      api
+        .post("/wellbeing/calculate/", { employee_id: meId })
+        .then(onCheckIn)
+        .catch(() => undefined);
+      return true;
+    } catch (err) {
+      setCheckInError(errorMessage(err));
+      return false;
+    }
+  };
+
+  const today = new Date();
+  const summary = shiftSummary(shifts.data ?? []);
 
   return (
     <main className="employee-page page-shell">
       <section className="welcome-row">
         <div>
-          <span className="section-kicker">Monday, 18 May</span>
-          <h1>Good morning, Amelia.</h1>
+          <span className="section-kicker">
+            {today.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}
+          </span>
+          <h1>{greeting(today)}, {user?.first_name}.</h1>
           <p>You have a steady morning ahead. Your next protected break is at 11:00.</p>
         </div>
         <div className="shift-status">
           <span className="status-dot" />
-          Shift in progress
-          <strong>08:30–17:00</strong>
+          {shifts.loading ? "Loading shift…" : summary.status}
+          <strong>{shifts.loading ? "" : summary.range}</strong>
         </div>
       </section>
 
@@ -567,8 +647,8 @@ function EmployeeView({
         <MetricCard
           icon={<Clock3 size={20} />}
           label="Today’s shift"
-          value="8h 30m"
-          helper="On track · 2h 15m complete"
+          value={shifts.loading ? "…" : summary.value}
+          helper={shifts.error ? "Could not load your roster" : summary.helper}
           tone="blue"
         />
         <MetricCard
@@ -594,7 +674,7 @@ function EmployeeView({
               <span className="section-kicker">Your day</span>
               <h2>Today’s schedule</h2>
             </div>
-            <button className="secondary-button">
+            <button className="secondary-button" onClick={() => navigate("roster")}>
               <CalendarDays size={16} />
               Full roster
             </button>
@@ -613,45 +693,54 @@ function EmployeeView({
                 <span className="section-kicker">For you today</span>
                 <h2>Your wellbeing rhythm</h2>
               </div>
-              <button className="demo-button" onClick={startDemo}>
-                <Sparkles size={13} />
-                Demo all 4
-              </button>
+              {pendingNudges.length > 0 && (
+                <button className="demo-button" onClick={startDemo}>
+                  <Sparkles size={13} />
+                  Answer all {pendingNudges.length}
+                </button>
+              )}
             </div>
             <p className="moments-intro">
               Small check-ins placed around natural pauses in your day.
             </p>
-            <div className="moment-list">
-              {wellbeingNudges.map((nudge) => (
-                <button
-                  className={`moment-row ${nudge.status} ${nudge.tone}`}
-                  key={nudge.id}
-                  onClick={() => openNudge(nudge)}
-                >
-                  <span className="moment-time">{nudge.time}</span>
-                  <span className="moment-marker">
-                    {nudge.status === "completed" ? (
-                      <Check size={14} />
-                    ) : nudge.status === "now" ? (
-                      <Heart size={14} fill="currentColor" />
-                    ) : (
-                      <Clock3 size={14} />
-                    )}
-                  </span>
-                  <span className="moment-copy">
-                    <strong>{nudge.category}</strong>
-                    <small>{nudge.context}</small>
-                  </span>
-                  <span className="moment-status">
-                    {nudge.status === "completed"
-                      ? "Done"
-                      : nudge.status === "now"
-                        ? "Now"
-                        : "Later"}
-                  </span>
-                </button>
-              ))}
-            </div>
+            <ErrorNote message={pending.error ?? checkInError} onRetry={pending.error ? pending.reload : undefined} />
+            {pending.loading ? (
+              <Loading text="Loading check-ins…" />
+            ) : wellbeingNudges.length === 0 ? (
+              <p className="moments-intro">You’re all caught up — no check-ins waiting.</p>
+            ) : (
+              <div className="moment-list">
+                {wellbeingNudges.map((nudge) => (
+                  <button
+                    className={`moment-row ${nudge.status} ${nudge.tone}`}
+                    key={nudge.id}
+                    onClick={() => openNudge(nudge)}
+                  >
+                    <span className="moment-time">{nudge.time}</span>
+                    <span className="moment-marker">
+                      {nudge.status === "completed" ? (
+                        <Check size={14} />
+                      ) : nudge.status === "now" ? (
+                        <Heart size={14} fill="currentColor" />
+                      ) : (
+                        <Clock3 size={14} />
+                      )}
+                    </span>
+                    <span className="moment-copy">
+                      <strong>{nudge.category}</strong>
+                      <small>{nudge.context}</small>
+                    </span>
+                    <span className="moment-status">
+                      {nudge.status === "completed"
+                        ? "Done"
+                        : nudge.status === "now"
+                          ? "Now"
+                          : "Later"}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
           </section>
           <section className="surface trust-card">
             <div className="shield-badge"><ShieldCheck size={22} /></div>
@@ -662,7 +751,7 @@ function EmployeeView({
                 Team leads only see combined patterns and contributing work
                 factors. They never see individual answers.
               </p>
-              <button className="inline-link">
+              <button className="inline-link" onClick={() => navigate("wellbeing")}>
                 How your data is used <ArrowRight size={15} />
               </button>
             </div>
@@ -675,8 +764,12 @@ function EmployeeView({
         aria-label="Open ShiftGuard wellbeing support"
         onClick={() => {
           if (!panelOpen) {
-            setDemoIndex(0);
-            setSelectedNudge(wellbeingNudges[0]);
+            if (!selectedNudge) {
+              navigate("wellbeing");
+              return;
+            }
+            setDemoIndex(pendingNudges.length ? 0 : null);
+            setSelectedId(pendingNudges[0]?.id ?? selectedNudge.id);
           } else {
             setDemoIndex(null);
           }
@@ -684,38 +777,42 @@ function EmployeeView({
         }}
       >
         {panelOpen ? <X size={23} /> : <Heart size={23} fill="currentColor" />}
-        {!panelOpen && <span>1</span>}
+        {!panelOpen && pendingNudges.length > 0 && <span>{pendingNudges.length}</span>}
       </button>
-      <WellbeingPanel
-        key={selectedNudge.id}
-        open={panelOpen}
-        nudge={selectedNudge}
-        onClose={() => {
-          setPanelOpen(false);
-          setDemoIndex(null);
-        }}
-        onSubmit={(value) => {
-          onCheckIn(value);
-          setPanelOpen(false);
-          if (
-            demoIndex !== null &&
-            demoIndex < wellbeingNudges.length - 1
-          ) {
-            const nextIndex = demoIndex + 1;
-            window.setTimeout(() => {
-              setDemoIndex(nextIndex);
-              setSelectedNudge(wellbeingNudges[nextIndex]);
-              setPanelOpen(true);
-            }, 450);
-          } else {
+      {selectedNudge && (
+        <WellbeingPanel
+          key={selectedNudge.id}
+          open={panelOpen}
+          nudge={selectedNudge}
+          onClose={() => {
+            setPanelOpen(false);
             setDemoIndex(null);
-          }
-        }}
-      />
+          }}
+          onSubmit={(optionId) => {
+            const current = selectedNudge;
+            const remaining = pendingNudges.filter((n) => n.id !== current.id);
+            setPanelOpen(false);
+            void submitAnswer(current, optionId).then((ok) => {
+              if (ok && demoIndex !== null && remaining.length > 0) {
+                window.setTimeout(() => {
+                  setDemoIndex(0);
+                  setSelectedId(remaining[0].id);
+                  setPanelOpen(true);
+                }, 450);
+              } else {
+                setDemoIndex(null);
+              }
+            });
+          }}
+        />
+      )}
     </main>
   );
 }
 
+// ---------------------------------------------------------------------------
+// manager view ("Team view")
+// ---------------------------------------------------------------------------
 function StatusPill({ level }: { level: RiskLevel }) {
   return (
     <span
@@ -733,9 +830,10 @@ function StatusPill({ level }: { level: RiskLevel }) {
 }
 
 function MiniTrend({ values, level }: { values: number[]; level: RiskLevel }) {
-  const points = values
+  const series = values.length > 1 ? values : [values[0] ?? 0, values[0] ?? 0];
+  const points = series
     .map((value, index) => {
-      const x = (index / (values.length - 1)) * 78 + 2;
+      const x = (index / (series.length - 1)) * 78 + 2;
       const y = 31 - (value / 100) * 27;
       return `${x},${y}`;
     })
@@ -786,14 +884,96 @@ function OverviewChart() {
   );
 }
 
+/** Roster-derived weekly figures for the drawer (from the latest risk snapshot + shifts). */
+function useMemberStats(memberId: string) {
+  return useAsync(async () => {
+    const since = new Date(Date.now() - 30 * 86400000).toISOString();
+    const [snapshots, shifts] = await Promise.all([
+      api.list<RiskSnapshot>("/risk-snapshots/", { employee: memberId, ordering: "-snapshot_date" }),
+      api.get<{ count: number }>("/shifts/", { employee: memberId, shift_start__gte: since }),
+    ]);
+    const snap = snapshots[0];
+    if (!snap) return null;
+    const perWeek = 7 / 30;
+    const shiftCount = shifts.count ?? 0;
+    return {
+      hours: Math.round(Number(snap.actual_hours_worked_30d) * perWeek),
+      overtime: Math.round(Number(snap.overtime_hours_30d) * perWeek),
+      breaks: shiftCount ? Math.max(0, Math.round(((shiftCount - snap.missed_breaks_30d) / shiftCount) * 100)) : null,
+      date: snap.snapshot_date,
+    };
+  }, [memberId]);
+}
+
 function TeamMemberDrawer({
   member,
   onClose,
+  onChanged,
+  openDirectChat,
 }: {
   member: TeamMember | null;
   onClose: () => void;
+  onChanged: () => void;
+  openDirectChat: (employeeId: string, name: string) => void;
 }) {
   if (!member) return null;
+  return (
+    <TeamMemberDrawerBody
+      key={member.id}
+      member={member}
+      onClose={onClose}
+      onChanged={onChanged}
+      openDirectChat={openDirectChat}
+    />
+  );
+}
+
+function TeamMemberDrawerBody({
+  member,
+  onClose,
+  onChanged,
+  openDirectChat,
+}: {
+  member: TeamMember;
+  onClose: () => void;
+  onChanged: () => void;
+  openDirectChat: (employeeId: string, name: string) => void;
+}) {
+  const { user } = useAuth();
+  const { nameOf } = useEmployees();
+  const stats = useMemberStats(member.id);
+  const employee = useAsync(() => api.get<Employee>(`/employees/${member.id}/`), [member.id]);
+  const interventions = useAsync(
+    () => api.list<Intervention>("/interventions/", { employee: member.id, ordering: "-triggered_at" }),
+    [member.id],
+  );
+  const action = useAction();
+  const [notice, setNotice] = useState<string | null>(null);
+  const open = (interventions.data ?? []).filter((iv) => iv.action_status === "PENDING" || iv.action_status === "IN_PROGRESS");
+
+  const planConversation = () =>
+    action.run(async () => {
+      await api.post<Intervention>("/interventions/", {
+        employee_id: member.id,
+        target_employee_id: user?.employee_id,
+        action_type: "SCHEDULE_CHECKIN",
+        action_status: "PENDING",
+        action_payload: { note: "Supportive conversation planned from Team view" },
+      });
+      setNotice("Supportive conversation added to your actions.");
+      await interventions.reload();
+      onChanged();
+    });
+
+  const recalculate = () =>
+    action.run(async () => {
+      await api.post("/wellbeing/calculate/", { employee_id: member.id });
+      setNotice("Wellbeing score recalculated.");
+      onChanged();
+    });
+
+  const s = stats.data;
+
   return (
     <>
       <button className="drawer-backdrop" aria-label="Close team member details" onClick={onClose} />
@@ -805,7 +985,7 @@ function TeamMemberDrawer({
           <div>
             <span className="section-kicker">Team member overview</span>
             <h2>{member.name}</h2>
-            <p>{member.role} · Cedar Ward</p>
+            <p>{member.role} · {member.department ?? "No department"}</p>
           </div>
           <button className="ghost-icon" onClick={onClose} aria-label="Close">
             <X size={20} />
@@ -834,9 +1014,9 @@ function TeamMemberDrawer({
           </ul>
         </div>
         <div className="drawer-stat-grid">
-          <div><span>Hours this week</span><strong>{member.hours}h</strong></div>
-          <div><span>Overtime</span><strong>{member.overtime}h</strong></div>
-          <div><span>Break compliance</span><strong>{member.breaks}%</strong></div>
+          <div><span>Hours this week</span><strong>{s ? `${s.hours}h` : stats.loading ? "…" : "—"}</strong></div>
+          <div><span>Overtime</span><strong>{s ? `${s.overtime}h` : stats.loading ? "…" : "—"}</strong></div>
+          <div><span>Break compliance</span><strong>{s && s.breaks !== null ? `${s.breaks}%` : stats.loading ? "…" : "—"}</strong></div>
         </div>
         <div className="privacy-boundary">
           <LockKeyhole size={20} />
@@ -848,27 +1028,81 @@ function TeamMemberDrawer({
             </p>
           </div>
         </div>
-        <button className="primary-button full">
+        <ErrorNote message={action.error} />
+        <SuccessNote message={notice} />
+        <button className="primary-button full" disabled={action.busy} onClick={() => void planConversation()}>
           Plan a supportive conversation
           <ArrowRight size={17} />
         </button>
+        <div className="pp-inline-actions" style={{ marginTop: 10 }}>
+          <button className="secondary-button" onClick={() => openDirectChat(member.id, member.name)}>
+            <MessagesSquare size={15} /> Message
+          </button>
+          <button className="secondary-button" disabled={action.busy} onClick={() => void recalculate()}>
+            <RefreshCw size={15} /> Recalculate score
+          </button>
+        </div>
+
+        <div className="drawer-section" style={{ marginTop: 16 }}>
+          <span className="section-kicker">Open support actions</span>
+          <h3>Interventions ({open.length})</h3>
+          {interventions.loading ? (
+            <Loading />
+          ) : open.length === 0 ? (
+            <p className="pp-muted" style={{ marginTop: 10 }}>No open actions.</p>
+          ) : (
+            <ul className="factor-list">
+              {open.map((iv, i) => (
+                <li key={iv.intervention_id}>
+                  <span>{i + 1}</span>
+                  <div style={{ flex: 1 }}>
+                    <strong>{label(iv.action_type)} · {label(iv.action_status)}</strong>
+                    <small>{describeIntervention(iv, nameOf)} Assigned to {nameOf(iv.target_employee_id)} · {formatDate(iv.triggered_at)}</small>
+                    <div style={{ marginTop: 6 }}>
+                      <InterventionActions iv={iv} onChanged={() => void interventions.reload()} />
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        {employee.data && (
+          <div style={{ marginTop: 16 }}>
+            <Relations employee={employee.data} onChanged={(updated) => employee.setData(updated)} />
+          </div>
+        )}
       </aside>
     </>
   );
 }
 
 function ManagerView({
-  members,
   recentUpdate,
+  openDirectChat,
 }: {
-  members: TeamMember[];
   recentUpdate: boolean;
+  openDirectChat: (employeeId: string, name: string) => void;
 }) {
-  const [selected, setSelected] = useState<TeamMember | null>(null);
+  const { user } = useAuth();
+  const { byId } = useEmployees();
+  const team = useAsync(() => api.get<WellbeingSummary[]>("/wellbeing/team/"), []);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [filter, setFilter] = useState<"All" | "Needs attention" | "Keep an eye">("All");
+
+  const members = useMemo(
+    () =>
+      (team.data ?? [])
+        .filter((s) => s.employee_id !== user?.employee_id)
+        .map((s) => toMember(s, byId.get(s.employee_id)))
+        .sort((a, b) => b.risk - a.risk),
+    [team.data, byId, user?.employee_id],
+  );
   const visibleMembers = members.filter(
     (member) => filter === "All" || member.level === filter,
   );
+  const selected = members.find((m) => m.id === selectedId) ?? null;
 
   const counts = useMemo(
     () => ({
@@ -883,7 +1117,7 @@ function ManagerView({
     <main className="manager-page page-shell">
       <section className="manager-title-row">
         <div>
-          <span className="section-kicker">Cedar Ward · Team overview</span>
+          <span className="section-kicker">{user?.department ?? "Your team"} · Team overview</span>
           <h1>Team wellbeing</h1>
           <p>Understand changing patterns early, without exposing private responses.</p>
         </div>
@@ -891,7 +1125,7 @@ function ManagerView({
           <button className="secondary-button">
             Last 12 weeks <ChevronDown size={15} />
           </button>
-          <button className="secondary-button">
+          <button className="secondary-button" onClick={() => void team.reload()}>
             All teams <ChevronDown size={15} />
           </button>
         </div>
@@ -995,12 +1229,17 @@ function ManagerView({
             ))}
           </div>
         </div>
+        {team.error && <ErrorNote message={team.error} onRetry={team.reload} />}
+        {team.loading && <Loading text="Loading team wellbeing…" />}
+        {!team.loading && !team.error && visibleMembers.length === 0 && (
+          <div className="pp-state">No team members to show.</div>
+        )}
         <div className="team-table" role="table">
           <div className="table-row table-head" role="row">
             <span>Team member</span><span>Risk signal</span><span>12-week trend</span><span>Contributing factors</span><span />
           </div>
           {visibleMembers.map((member) => (
-            <button className="table-row member-row" key={member.id} onClick={() => setSelected(member)} role="row">
+            <button className="table-row member-row" key={member.id} onClick={() => setSelectedId(member.id)} role="row">
               <div className="member-identity">
                 <div className="avatar" style={{ background: member.color }}>{member.initials}</div>
                 <div><strong>{member.name}</strong><span>{member.role}</span></div>
@@ -1009,7 +1248,7 @@ function ManagerView({
               <MiniTrend values={member.trend} level={member.level} />
               <div className="factors-cell">
                 <strong>{member.factors[0]}</strong>
-                <span>+ {member.factors[1]}</span>
+                {member.factors[1] && <span>+ {member.factors[1]}</span>}
               </div>
               <ArrowRight size={18} className="row-arrow" />
             </button>
@@ -1017,7 +1256,7 @@ function ManagerView({
         </div>
         <div className="mobile-member-list">
           {visibleMembers.map((member) => (
-            <button className="mobile-member-card" key={member.id} onClick={() => setSelected(member)}>
+            <button className="mobile-member-card" key={member.id} onClick={() => setSelectedId(member.id)}>
               <div className="member-identity">
                 <div className="avatar" style={{ background: member.color }}>{member.initials}</div>
                 <div><strong>{member.name}</strong><span>{member.role}</span></div>
@@ -1034,43 +1273,70 @@ function ManagerView({
         </div>
       </section>
 
-      <TeamMemberDrawer member={selected} onClose={() => setSelected(null)} />
+      <TeamMemberDrawer
+        member={selected}
+        onClose={() => setSelectedId(null)}
+        onChanged={() => void team.reload()}
+        openDirectChat={openDirectChat}
+      />
     </main>
   );
 }
 
-export default function App() {
-  const [role, setRole] = useState<Role>("employee");
-  const [members, setMembers] = useState(initialMembers);
+// ---------------------------------------------------------------------------
+// app shell
+// ---------------------------------------------------------------------------
+function Shell() {
+  const { user, loading, isManager, isStaff } = useAuth();
+  const { page, navigate } = usePage();
   const [recentUpdate, setRecentUpdate] = useState(false);
+  const [chatTarget, setChatTarget] = useState<Conversation | null>(null);
 
-  const handleCheckIn = (value: number) => {
-    setRecentUpdate(true);
-    setMembers((current) =>
-      current.map((member) =>
-        member.id === 2
-          ? {
-              ...member,
-              risk: Math.max(24, member.risk + (value <= 2 ? 3 : -3)),
-              delta: value <= 2 ? 7 : 2,
-              factors:
-                value <= 2
-                  ? ["4 consecutive shifts", "Aggregated wellbeing trend declined"]
-                  : member.factors,
-            }
-          : member,
-      ),
+  const openDirectChat = useCallback(
+    (employeeId: string, name: string) => {
+      setChatTarget({ kind: "direct", id: employeeId, title: name });
+      navigate("chat");
+    },
+    [navigate],
+  );
+
+  if (loading) {
+    return (
+      <main className="pp-auth">
+        <Loading text="Restoring your session…" />
+      </main>
     );
-  };
+  }
+  if (!user) return <AuthPage />;
+
+  // Role-gated pages fall back to "My shift".
+  const allowed =
+    (page !== "manager" && page !== "team-roster") || isManager
+      ? page !== "admin" || isStaff
+      : false;
+  const current: PageId = allowed ? page : "employee";
 
   return (
     <div className="app">
-      <AppHeader role={role} setRole={setRole} />
-      {role === "employee" ? (
-        <EmployeeView onCheckIn={handleCheckIn} />
-      ) : (
-        <ManagerView members={members} recentUpdate={recentUpdate} />
-      )}
+      <AppHeader page={current} navigate={navigate} openDirectChat={openDirectChat} />
+      {current === "employee" && <EmployeeView onCheckIn={() => setRecentUpdate(true)} navigate={navigate} />}
+      {current === "manager" && <ManagerView recentUpdate={recentUpdate} openDirectChat={openDirectChat} />}
+      {current === "profile" && <ProfilePage />}
+      {current === "wellbeing" && <WellbeingPage />}
+      {current === "roster" && <RosterPage key="roster" />}
+      {current === "team-roster" && <RosterPage key="team-roster" initialTab="shifts" />}
+      {current === "leave" && <LeavePage />}
+      {current === "interventions" && <InterventionsPage />}
+      {current === "chat" && <ChatPage key={chatTarget ? `${chatTarget.kind}-${chatTarget.id}` : "chat"} initial={chatTarget} />}
+      {current === "admin" && <AdminPage />}
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <Shell />
+    </AuthProvider>
   );
 }

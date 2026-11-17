@@ -318,5 +318,6 @@ Messages are relayed live and **not stored**, because the schema has no chat tab
 | `DJANGO_DEBUG` | `True` | |
 | `DJANGO_ALLOWED_HOSTS` | `*` | Comma-separated list. |
 | `BUDDY_MAX_ASSIGNEES` | `3` | Maximum number of employees one buddy can support. |
+| `DJANGO_CORS_ALLOWED_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173` | Comma-separated browser origins allowed to call the API (the frontend dev and preview servers). |
 
 JWT lifetimes are set by `SIMPLE_JWT` in `config/settings.py`. Access tokens last 60 minutes and refresh tokens last 7 days, with rotation and blacklisting.

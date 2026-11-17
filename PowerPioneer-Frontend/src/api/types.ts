@@ -1,0 +1,317 @@
+/** Types mirroring the PowerPioneer-Backend-Core serializers. */
+
+export type UUID = string;
+/** DRF DecimalField with COERCE_DECIMAL_TO_STRING=False arrives as a number. */
+export type Num = number;
+
+export interface Paginated<T> {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: T[];
+}
+
+// ---------------------------------------------------------------------------
+// employees / auth
+// ---------------------------------------------------------------------------
+export const EMPLOYMENT_TYPES = ["FULL_TIME", "PART_TIME", "BANK", "AGENCY", "CONTRACT"] as const;
+export type EmploymentType = (typeof EMPLOYMENT_TYPES)[number];
+
+export interface EmployeeBrief {
+  employee_id: UUID;
+  employee_number: string;
+  full_name: string;
+  email: string;
+  job_role: string;
+  department: string | null;
+}
+
+export interface Employee {
+  employee_id: UUID;
+  employee_number: string;
+  first_name: string;
+  last_name: string;
+  full_name: string;
+  email: string;
+  job_role: string;
+  department: string | null;
+  location: string | null;
+  manager_employee_id: UUID | null;
+  buddy_employee_id: UUID | null;
+  manager: EmployeeBrief | null;
+  buddy: EmployeeBrief | null;
+  employment_type: EmploymentType;
+  contracted_weekly_hours: Num | null;
+  hire_date: string | null;
+  maternity_return_date: string | null;
+  is_active: boolean;
+  is_staff: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LoginResponse {
+  access: string;
+  refresh: string;
+  employee: EmployeeBrief;
+}
+
+export interface RegisterPayload {
+  employee_number: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+  password: string;
+  job_role: string;
+  department?: string | null;
+  location?: string | null;
+  employment_type: EmploymentType;
+  contracted_weekly_hours?: Num | null;
+  hire_date?: string | null;
+}
+
+export interface BuddySuggestion {
+  employee_id: UUID;
+  full_name: string;
+  department: string | null;
+  location: string | null;
+  job_role: string;
+  current_buddy_load: number;
+  latest_wellbeing_score: Num | null;
+  match_score: number;
+  reasons: string[];
+}
+
+export interface DeactivateResult {
+  employee_id: UUID;
+  is_active: boolean;
+  direct_reports_reassigned_to: UUID | null;
+  direct_reports_reassigned: UUID[];
+  buddy_assignments_removed: UUID[];
+}
+
+// ---------------------------------------------------------------------------
+// rostering
+// ---------------------------------------------------------------------------
+export const SHIFT_TYPES = ["DAY", "EARLY", "LATE", "LONG_DAY", "NIGHT", "ON_CALL"] as const;
+export type ShiftType = (typeof SHIFT_TYPES)[number];
+
+export interface Shift {
+  shift_id: UUID;
+  employee_id: UUID;
+  shift_start: string;
+  shift_end: string;
+  planned_hours: Num;
+  actual_hours: Num | null;
+  shift_type: ShiftType;
+  location: string | null;
+  expected_patient_load: Num | null;
+  actual_patient_load: Num | null;
+  planned_staff_count: number | null;
+  actual_staff_count: number | null;
+  understaffed_flag: boolean;
+  missed_break_flag: boolean;
+  short_notice_change_flag: boolean;
+  redeployment_flag: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export const LEAVE_TYPES = [
+  "ANNUAL", "SICK", "MATERNITY", "PATERNITY", "PARENTAL", "COMPASSIONATE", "STUDY", "UNPAID", "OTHER",
+] as const;
+export type LeaveType = (typeof LEAVE_TYPES)[number];
+export const LEAVE_STATUSES = ["PENDING", "APPROVED", "REJECTED", "CANCELLED"] as const;
+export type LeaveStatus = (typeof LEAVE_STATUSES)[number];
+
+export interface LeaveRequest {
+  leave_request_id: UUID;
+  employee_id: UUID;
+  leave_type: LeaveType;
+  start_date: string;
+  end_date: string;
+  duration_days: number;
+  status: LeaveStatus;
+  requested_at: string;
+  decision_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export const ATTENDANCE_STATUSES = ["PRESENT", "LATE", "ABSENT", "ON_LEAVE"] as const;
+export type AttendanceStatus = (typeof ATTENDANCE_STATUSES)[number];
+export const ABSENCE_TYPES = ["SICK", "UNPLANNED", "UNAUTHORISED", "FAMILY_EMERGENCY", "PLANNED"] as const;
+export type AbsenceType = (typeof ABSENCE_TYPES)[number];
+
+export interface Attendance {
+  attendance_id: UUID;
+  employee_id: UUID;
+  attendance_date: string;
+  attendance_status: AttendanceStatus;
+  late_minutes: number;
+  absence_type: AbsenceType | null;
+  absence_episode_id: UUID | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// ---------------------------------------------------------------------------
+// surveys
+// ---------------------------------------------------------------------------
+export const QUESTION_SOURCES = ["MANUAL", "AI_GENERATED", "SYSTEM"] as const;
+export type QuestionSource = (typeof QUESTION_SOURCES)[number];
+export const TRIGGER_TYPES = [
+  "SCHEDULED", "RISK_TRIGGERED", "ONBOARDING", "MATERNITY_RETURN", "POST_SHIFT", "ADHOC",
+] as const;
+export type TriggerType = (typeof TRIGGER_TYPES)[number];
+
+export interface NestedOption {
+  option_id?: UUID;
+  option_text: string;
+  normalized_score: number;
+  display_order: number;
+}
+
+export interface Question {
+  question_id: UUID;
+  question_text: string;
+  source: QuestionSource;
+  trigger_type: TriggerType;
+  generated_for_employee_id: UUID | null;
+  context_data: unknown;
+  model_name: string | null;
+  prompt_version: string | null;
+  is_active: boolean;
+  expires_at: string | null;
+  is_open: boolean;
+  options: NestedOption[];
+  created_at: string;
+}
+
+export interface QuestionOption {
+  option_id: UUID;
+  question_id: UUID;
+  option_text: string;
+  normalized_score: number;
+  display_order: number;
+  created_at: string;
+}
+
+export interface EmployeeResponse {
+  response_id: UUID;
+  employee_id: UUID;
+  question_id: UUID;
+  option_id: UUID;
+  responded_at: string;
+}
+
+// ---------------------------------------------------------------------------
+// wellbeing
+// ---------------------------------------------------------------------------
+export const RISK_BANDS = ["LOW", "MODERATE", "HIGH", "CRITICAL"] as const;
+export type RiskBand = (typeof RISK_BANDS)[number];
+
+export interface RiskSnapshot {
+  risk_snapshot_id: UUID;
+  employee_id: UUID;
+  snapshot_date: string;
+  contracted_hours_30d: Num;
+  actual_hours_worked_30d: Num;
+  overtime_hours_30d: Num;
+  overtime_ratio_30d: Num;
+  night_shifts_30d: number;
+  long_shifts_30d: number;
+  max_consecutive_work_days: number;
+  max_consecutive_night_shifts: number;
+  minimum_rest_hours_between_shifts: Num | null;
+  short_notice_roster_changes_30d: number;
+  missed_breaks_30d: number;
+  unplanned_absence_days_90d: number;
+  unplanned_absence_episodes_90d: number;
+  late_arrivals_30d: number;
+  days_since_last_meaningful_leave: number | null;
+  cancelled_or_rejected_leave_90d: number;
+  understaffed_shift_ratio_30d: Num;
+  average_patient_load_ratio_30d: Num | null;
+  redeployments_90d: number;
+  wellbeing_score: Num | null;
+  risk_label: RiskBand | null;
+  risk_outcome_within_30d: boolean | null;
+  is_training_record: boolean;
+  created_at: string;
+  updated_at: string;
+  [key: string]: unknown;
+}
+
+export interface Explanation {
+  feature_name: string;
+  feature_value: Num | null;
+  shap_value: Num;
+  contribution_direction: "INCREASES_RISK" | "DECREASES_RISK";
+  display_order: number;
+}
+
+export interface RiskExplanation extends Explanation {
+  explanation_id: UUID;
+  prediction_id: UUID;
+  created_at: string;
+}
+
+export interface RiskPrediction {
+  prediction_id: UUID;
+  employee_id: UUID;
+  risk_snapshot_id: UUID;
+  risk_score: Num;
+  risk_band: RiskBand;
+  model_name: string;
+  model_version: string;
+  predicted_at: string;
+  explanations: Explanation[];
+}
+
+export const ACTION_TYPES = [
+  "NOTIFY_MANAGER", "NOTIFY_BUDDY", "SUGGEST_BUDDY", "SCHEDULE_CHECKIN", "SEND_SURVEY", "SEND_MESSAGE",
+  "ASSIGN_MANAGER", "REMOVE_MANAGER", "ASSIGN_BUDDY", "REMOVE_BUDDY", "OTHER",
+] as const;
+export type ActionType = (typeof ACTION_TYPES)[number];
+export const ACTION_STATUSES = ["PENDING", "IN_PROGRESS", "COMPLETED", "FAILED", "CANCELLED"] as const;
+export type ActionStatus = (typeof ACTION_STATUSES)[number];
+
+export interface Intervention {
+  intervention_id: UUID;
+  employee_id: UUID;
+  prediction_id: UUID | null;
+  target_employee_id: UUID | null;
+  action_type: ActionType;
+  action_status: ActionStatus;
+  action_payload: Record<string, unknown> | null;
+  failure_reason: string | null;
+  triggered_at: string;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WellbeingSummary {
+  employee_id: UUID;
+  full_name: string;
+  latest_wellbeing_score: Num | null;
+  latest_risk_band: RiskBand | null;
+  latest_snapshot_date: string | null;
+  trend: number | null;
+  history: Array<{ snapshot_date: string; wellbeing_score: Num | null; risk_label: RiskBand | null }>;
+  top_drivers: Explanation[];
+  open_interventions: number;
+}
+
+export interface WellbeingResult {
+  prediction: RiskPrediction;
+  snapshot: RiskSnapshot;
+}
+
+export interface CalculateAllResult {
+  snapshot_date: string;
+  employees_scored: number;
+  bands: Record<string, number>;
+}
