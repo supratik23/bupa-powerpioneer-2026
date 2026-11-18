@@ -4,8 +4,17 @@ import type { SupportNudge } from "../api/types";
 /**
  * Popup in the same style as the check-in panel, with two buttons (acknowledge / skip).
  * The choice only closes the popup: nothing is sent to the backend.
+ * Without a response it hides itself after `visibleMs` (the bar under the header shows the time left).
  */
-export function SupportNudgePopup({ nudge, onClose }: { nudge: SupportNudge | null; onClose: () => void }) {
+export function SupportNudgePopup({
+  nudge,
+  onClose,
+  visibleMs,
+}: {
+  nudge: SupportNudge | null;
+  onClose: () => void;
+  visibleMs: number;
+}) {
   if (!nudge) return null;
   return (
     <>
@@ -22,6 +31,10 @@ export function SupportNudgePopup({ nudge, onClose }: { nudge: SupportNudge | nu
           <button className="ghost-icon" onClick={onClose} aria-label="Close">
             <X size={19} />
           </button>
+        </div>
+        {/* key restarts the countdown animation for every new nudge */}
+        <div className="nudge-countdown" aria-hidden="true">
+          <span key={nudge.nudge_id} style={{ animationDuration: `${visibleMs}ms` }} />
         </div>
 
         <div className="panel-body">

@@ -20,7 +20,7 @@ from psycopg.types.json import Jsonb
 from pydantic import BaseModel, Field, field_validator
 
 from config import settings
-from services.shiftguard_repository import to_jsonable
+from services.shiftguard_repository import SUPPORT_NUDGE_KIND, to_jsonable
 
 logger = logging.getLogger(__name__)
 
@@ -123,8 +123,9 @@ def find_queued_question(db, employee_id) -> dict | None:
 
 def _recent_question_texts(db, employee_id, limit: int = 8) -> list[str]:
     rows = db.fetch_all(
-        "SELECT question_text FROM question WHERE generated_for_employee_id = %s ORDER BY created_at DESC LIMIT %s",
-        (employee_id, limit),
+        "SELECT question_text FROM question WHERE generated_for_employee_id = %s "
+        "AND coalesce(context_data ->> 'kind', '') <> %s ORDER BY created_at DESC LIMIT %s",
+        (employee_id, SUPPORT_NUDGE_KIND, limit),
     )
     return [r["question_text"] for r in rows]
 

@@ -60,6 +60,7 @@ import { withSupabaseRows } from "./lib/wellbeingData";
 import { RosterTimelineDrawer } from "./components/DayTimeline";
 import { DayPlan } from "./components/DayPlan";
 import { SupportNudgePopup } from "./components/SupportNudge";
+import { NotificationBell } from "./components/NotificationBell";
 import { useSupportNudges } from "./lib/useSupportNudges";
 import { ReturnToWorkTeam } from "./components/ReturnToWork";
 import { isCompleted, shiftDay } from "./lib/appointments";
@@ -301,6 +302,7 @@ function AppHeader({
         <RoleSwitch role={role} setRole={navigate} showTeam={isManager} />
       </div>
       <div className="header-actions">
+        <NotificationBell navigate={navigate} />
         <ThemeToggle />
         <ProfileMenu page={page} navigate={navigate} />
         <button
@@ -1615,7 +1617,7 @@ function Shell() {
       {current === "team-roster" && <RosterPage key="team-roster" initialTab="shifts" />}
       {current === "leave" && <LeavePage />}
       {current === "admin" && <AdminPage />}
-      <SupportNudgePopup nudge={supportNudges.nudge} onClose={supportNudges.dismiss} />
+      <SupportNudgePopup nudge={supportNudges.nudge} onClose={supportNudges.dismiss} visibleMs={supportNudges.visibleMs} />
     </div>
   );
 }

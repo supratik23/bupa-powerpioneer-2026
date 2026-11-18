@@ -1201,6 +1201,43 @@ h3,
   color: #6243d5;
 }
 
+/* Supportive nudge popup: reuses the check-in panel look, but sized to its content instead of a full-height
+   drawer (the check-in panel is pinned top + bottom, which left empty space under the short nudge). */
+.wellbeing-panel.support-nudge-panel {
+  bottom: auto;
+  max-height: calc(100vh - 116px);
+}
+
+.support-nudge-panel .panel-body {
+  padding: 18px 22px 20px;
+}
+
+.support-nudge-panel .question-heading {
+  margin: 0 0 16px;
+}
+
+/* Time left before an unanswered nudge hides itself (duration set inline from NUDGE_VISIBLE_MS) */
+.nudge-countdown {
+  height: 3px;
+  background: rgba(28, 211, 216, 0.15);
+  position: sticky;
+  top: 74px;
+  z-index: 2;
+}
+
+.nudge-countdown span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #1cd3d8, #583bce);
+  transform-origin: left;
+  animation: nudge-countdown linear forwards;
+}
+
+@keyframes nudge-countdown {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+
 /* Manager */
 .manager-controls {
   gap: 8px;
@@ -2000,6 +2037,14 @@ h3,
     bottom: 0;
     width: 100%;
     border-radius: 0;
+  }
+
+  /* On phones the nudge is a bottom sheet that is only as tall as its content */
+  .wellbeing-panel.support-nudge-panel {
+    top: auto;
+    bottom: 0;
+    max-height: calc(100vh - 68px);
+    border-radius: 21px 21px 0 0;
   }
 
   .floating-support {

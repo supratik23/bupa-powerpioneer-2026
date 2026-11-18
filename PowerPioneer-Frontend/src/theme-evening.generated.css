@@ -553,6 +553,52 @@ html[data-daypart="evening"] .pp-note-item.live {
 html[data-daypart="evening"] .pp-note-item .pp-inline-actions button {
     border: 1px solid hsl(213 35% 29%)
 }
+html[data-daypart="evening"] .notif-bell {
+    color: hsl(216 43% 79%)
+}
+html[data-daypart="evening"] .notif-count {
+    border: 2px solid hsl(232 30% 16%)
+}
+html[data-daypart="evening"] .pp-menu .notif-link {
+    color: hsl(217 75% 72%)
+}
+html[data-daypart="evening"] .notif-item.urgent.live {
+    border-color: hsl(349 42% 30%);
+    background: hsl(353 42% 18%)
+}
+html[data-daypart="evening"] .notif-icon {
+    color: hsl(216 75% 73%);
+    background: hsl(217 42% 21%)
+}
+html[data-daypart="evening"] .notif-icon.buddy {
+    color: hsl(176 75% 82%);
+    background: hsl(171 42% 24%)
+}
+html[data-daypart="evening"] .notif-item.urgent .notif-icon {
+    color: hsl(350 58% 74%);
+    background: hsl(349 42% 22%)
+}
+html[data-daypart="evening"] .notif-band {
+    color: hsl(35 75% 77%);
+    background: hsl(38 42% 25%)
+}
+html[data-daypart="evening"] .notif-band.band-critical {
+    color: hsl(350 58% 74%);
+    background: hsl(349 42% 22%)
+}
+html[data-daypart="evening"] .notif-band.band-low {
+    color: hsl(176 75% 82%);
+    background: hsl(171 42% 24%)
+}
+html[data-daypart="evening"] .notif-email {
+    color: hsl(215 30% 75%)
+}
+html[data-daypart="evening"] .notif-email.failed {
+    color: hsl(35 75% 77%)
+}
+html[data-daypart="evening"] .notif-foot > span {
+    color: hsl(218 13% 70%)
+}
 html[data-daypart="evening"] .pp-stat {
     background: hsl(216 42% 18%)
 }

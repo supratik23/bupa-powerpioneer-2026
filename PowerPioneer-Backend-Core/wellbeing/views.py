@@ -1,4 +1,5 @@
 from collections import Counter
+from datetime import timedelta
 
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
@@ -156,6 +157,90 @@ class InterventionViewSet(EmployeeScopedViewSetMixin, viewsets.ModelViewSet):
     @action(detail=True, methods=["post"])
     def cancel(self, request, pk=None):
         return self._transition(request, ActionStatus.CANCELLED, self.open_states)
+
+    # -- in-app notifications for managers / buddies ---------------------------------------------------
+    # The AI agent emails the manager/buddy (EMAIL_MANAGER, EMAIL_BUDDY, SCHEDULE_CHECKIN interventions with
+    # target_employee = them). The inbox shows the same alerts in the app, one item per colleague, and never
+    # gives buddies the risk band or score. "Seen" is stored as action_payload.acknowledged_at.
+    INBOX_DAYS = 14
+    INBOX_READ_ITEMS = 5
+    MANAGER_ALERTS = ("EMAIL_MANAGER", "NOTIFY_MANAGER", "SCHEDULE_CHECKIN")
+    BUDDY_ALERTS = ("EMAIL_BUDDY", "NOTIFY_BUDDY")
+    BAND_ORDER = {"LOW": 0, "MEDIUM": 1, "MODERATE": 1, "HIGH": 2, "CRITICAL": 3}
+    EMAIL_STATE = {"COMPLETED": "sent", "FAILED": "failed", "PENDING": "sending", "IN_PROGRESS": "sending"}
+
+    def _inbox_rows(self, user):
+        return (
+            Intervention.objects.select_related("employee")
+            .filter(
+                target_employee=user,
+                action_type__in=self.MANAGER_ALERTS + self.BUDDY_ALERTS,
+                triggered_at__gte=timezone.now() - timedelta(days=self.INBOX_DAYS),
+            )
+            .exclude(action_status=ActionStatus.CANCELLED)
+            .order_by("-triggered_at")
+        )
+
+    @extend_schema(summary="My notifications: colleagues the AI agent asked me (manager/buddy) to support",
+                   responses=OpenApiTypes.OBJECT)
+    @action(detail=False, methods=["get"])
+    def inbox(self, request):
+        by_employee: dict = {}
+        for iv in self._inbox_rows(request.user):           # newest first
+            by_employee.setdefault(iv.employee_id, []).append(iv)
+
+        items = []
+        for rows in by_employee.values():
+            unread = [iv for iv in rows if not (iv.action_payload or {}).get("acknowledged_at")]
+            group = unread or rows[:1]
+            latest, emp = group[0], group[0].employee
+            is_manager = any(iv.action_type in self.MANAGER_ALERTS for iv in group)
+            schedule = next((iv for iv in group if iv.action_type == "SCHEDULE_CHECKIN"), None)
+            email = next((iv for iv in group if iv.action_type.startswith("EMAIL_")), None)
+            item = {
+                "employee_id": str(emp.pk),
+                "employee_name": f"{emp.first_name} {emp.last_name}".strip(),
+                "employee_first_name": emp.first_name,
+                "job_role": emp.job_role,
+                "role": "manager" if is_manager else "buddy",
+                "unread": bool(unread),
+                "urgent": schedule is not None,
+                "due_by": (schedule.triggered_at + timedelta(
+                    hours=(schedule.action_payload or {}).get("within_hours", 48))).isoformat() if schedule else None,
+                "email_status": self.EMAIL_STATE.get(email.action_status) if email else None,
+                "latest_at": latest.triggered_at.isoformat(),
+                "alert_count": len(group),
+                "risk_band": None,
+            }
+            if is_manager:   # managers already get the band by email; buddies never see it
+                bands = [(iv.action_payload or {}).get("risk_band") for iv in group]
+                bands = [b for b in bands if b in self.BAND_ORDER]
+                item["risk_band"] = max(bands, key=self.BAND_ORDER.get) if bands else None
+            items.append(item)
+
+        unread_items = [i for i in items if i["unread"]]
+        read_items = [i for i in items if not i["unread"]][: self.INBOX_READ_ITEMS]
+        return Response({"unread_count": len(unread_items), "items": unread_items + read_items})
+
+    @extend_schema(summary="Mark my notifications as seen (one colleague via employee_id, or all)",
+                   request=OpenApiTypes.OBJECT, responses=OpenApiTypes.OBJECT)
+    @action(detail=False, methods=["post"], url_path="inbox/acknowledge")
+    def inbox_acknowledge(self, request):
+        rows = self._inbox_rows(request.user)
+        employee_id = request.data.get("employee_id")
+        if employee_id:
+            rows = rows.filter(employee_id=employee_id)
+        now = timezone.now().isoformat()
+        count = 0
+        for iv in rows:
+            payload = dict(iv.action_payload or {})
+            if payload.get("acknowledged_at"):
+                continue
+            payload["acknowledged_at"] = now
+            iv.action_payload = payload
+            iv.save(update_fields=["action_payload", "updated_at"])
+            count += 1
+        return Response({"acknowledged": count})
 
 
 @extend_schema(tags=["Wellbeing"])

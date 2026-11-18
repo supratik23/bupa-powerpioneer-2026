@@ -351,6 +351,29 @@ export interface Intervention {
   updated_at: string;
 }
 
+/** GET /interventions/inbox/ - one item per colleague the AI agent asked me (manager or buddy) to support. */
+export interface InboxItem {
+  employee_id: UUID;
+  employee_name: string;
+  employee_first_name: string;
+  job_role: string;
+  role: "manager" | "buddy";
+  unread: boolean;
+  /** A 1:1 was requested (CRITICAL) */
+  urgent: boolean;
+  due_by: string | null;
+  email_status: "sent" | "failed" | "sending" | null;
+  latest_at: string;
+  alert_count: number;
+  /** Managers only; always null for buddies */
+  risk_band: RiskBand | null;
+}
+
+export interface Inbox {
+  unread_count: number;
+  items: InboxItem[];
+}
+
 export interface WellbeingSummary {
   employee_id: UUID;
   full_name: string;

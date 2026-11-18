@@ -32,6 +32,10 @@ RISK_BAND_ORDER = {"LOW": 0, "MEDIUM": 1, "MODERATE": 1, "HIGH": 2, "CRITICAL": 
 # The XGBoost scorer writes this model_name; Django's rule scorer writes 'wellbeing-rules'.
 XGBOOST_MODEL_NAME = "XGBOOST"
 
+# Supportive nudges are stored in `question` (inactive, trigger_type ADHOC) with context_data.kind = this value,
+# so check-in logic can tell them apart from real check-in questions.
+SUPPORT_NUDGE_KIND = "SUPPORT_NUDGE"
+
 EMPLOYEE_COLUMNS = """
     e.employee_id, e.employee_number, e.first_name, e.last_name, e.email, e.job_role, e.department,
     e.location, e.employment_type, e.contracted_weekly_hours, e.hire_date, e.maternity_return_date,

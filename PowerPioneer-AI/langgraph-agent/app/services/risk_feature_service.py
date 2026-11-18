@@ -36,7 +36,7 @@ WELLBEING_WINDOW_DAYS = 7
 SHIFT_COLUMNS = """
     shift_id, shift_start, shift_end, planned_hours, actual_hours, shift_type,
     expected_patient_load, actual_patient_load, planned_staff_count, actual_staff_count,
-    understaffed_flag, missed_break_flag, short_notice_change_flag, redeployment_flag
+    understaffed_flag, missed_break_flag, short_notice_change_flag, redeployment_flag, end_of_life_care_flag
 """
 
 
@@ -95,14 +95,6 @@ def is_long_shift(shift: dict) -> bool:
 
 def _shift_date(shift: dict) -> date:
     return shift["shift_start"].astimezone(timezone.utc).date()
-
-
-def _has_end_of_life_flag(db) -> bool:
-    row = db.fetch_one(
-        "SELECT 1 AS ok FROM information_schema.columns "
-        "WHERE table_schema = 'public' AND table_name = 'shift_roster' AND column_name = 'end_of_life_care_flag'"
-    )
-    return row is not None
 
 
 def compute_wellbeing_score(db, employee_id, d: date) -> float | None:
@@ -260,15 +252,12 @@ def compute_features(db, employee: dict, d: date) -> dict[str, Any]:
             f["nursing_or_recovery_breaks_missed_30d"] = sum(1 for s in since_return_30 if s["missed_break_flag"])
 
     # -- End-of-life care (#26) -----------------------------------------------
-    # No app table records it yet -> 0. If shift_roster.end_of_life_care_flag is added later, count it.
-    f["end_of_life_care_7d"] = 0
-    if _has_end_of_life_flag(db):
-        row = db.fetch_one(
-            "SELECT count(*) AS n FROM shift_roster WHERE employee_id = %s AND end_of_life_care_flag "
-            "AND shift_start >= %s AND shift_start < %s",
-            (employee_id, _utc(d - timedelta(days=6)), end),
-        )
-        f["end_of_life_care_7d"] = int(row["n"])
+    # Flagged shifts (shift_roster.end_of_life_care_flag) in the PAST 7 days: started on d-6 .. d and already
+    # started by now. Shifts rostered later today or in the future never count, even when scoring today.
+    eol_from, eol_until = _utc(d - timedelta(days=6)), min(end, datetime.now(timezone.utc))
+    f["end_of_life_care_7d"] = sum(
+        1 for s in shifts_90 if s["end_of_life_care_flag"] and eol_from <= s["shift_start"] < eol_until
+    )
 
     missing = [name for name in FEATURE_NAMES if name not in f]
     if missing:  # defensive: the model raises on a missing key

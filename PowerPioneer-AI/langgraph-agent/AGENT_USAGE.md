@@ -66,7 +66,9 @@ Email interventions start as `PENDING` and become `COMPLETED`, or `FAILED` with 
 
 ## Supportive nudges (popup every minute)
 
-Supportive nudges are small prompts such as "Time for some water" or "Stretch your legs", with two buttons (an acknowledge button whose label Gemini writes, and Skip). The choice is handled only in the browser: nothing is sent back or stored, and no action is triggered.
+Supportive nudges are small prompts such as "Time for some water" or "Stretch your legs", with two buttons (an acknowledge button whose label Gemini writes, and Skip). The choice is handled only in the browser: it is not sent back, and no action is triggered.
+
+- **Stored in `question`.** Every nudge served is saved in a background thread: one `question` row (`question_id` = `nudge_id`, `trigger_type = 'ADHOC'`, `source` `GEMINI` or `TEMPLATE`, `model_name`, `prompt_version = 'shiftguard-nudge-v1'`, `is_active = false`, `context_data = {kind: "SUPPORT_NUDGE", category, emoji, title, message, generated_by}`) plus the two buttons as `question_option` rows. Because they are inactive, nudges never show up as pending check-ins, and since no `employee_response` is written they never affect the wellbeing score. Query them with `context_data ->> 'kind' = 'SUPPORT_NUDGE'`. A failed save is only logged; the popup is still shown.
 
 - **Agent: `GET /nudges/next`**, with the same login token as the check-in endpoints. It returns `{nudge_id, category, emoji, title, message, options: [{id: "acknowledge", label}, {id: "skip", label: "Skip"}], generated_by}`.
 - **No Gemini call per request.** Each employee has an in-memory pool of 8 Gemini-written nudges. When fewer than 3 remain, one background Gemini call refills it, using the employee's role and current shift (e.g. "6 h into a day shift, 2.5 h left") and avoiding recent repeats. The first call, or any call made while Gemini is down, gets a built-in nudge. Requests take a few milliseconds. The pool is lost on restart, which is harmless.
@@ -122,7 +124,7 @@ How the features are computed:
 
 - Everything is computed from the app tables in UTC.
 - `wellbeing_score` is the mean check-in answer over the last 7 days, on the 1–4 scale.
-- `end_of_life_care_7d` is 0 until `shift_roster.end_of_life_care_flag` exists. When it does, the tool counts flagged shifts automatically.
+- `end_of_life_care_7d` counts the employee's shifts with `shift_roster.end_of_life_care_flag = true` that started in the 7 days ending on the scoring date.
 - Employees with no shifts in the last 30 days, such as managers, are skipped.
 - Features #1–#19 and #21–#25 were checked against Django's `extract_features` for all 20 operational employees on 2026-11-18 and match exactly.
 

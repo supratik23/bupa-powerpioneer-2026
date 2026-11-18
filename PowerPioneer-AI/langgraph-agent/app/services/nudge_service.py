@@ -1,10 +1,16 @@
 """
-Supportive on-screen nudges ("drink some water", "take a short walk"...). Nothing is stored in the database and
-the employee's response triggers nothing.
+Supportive on-screen nudges ("drink some water", "take a short walk"...). The employee's response triggers nothing.
 
 The frontend asks for one nudge every minute, so Gemini is NOT called per request. Each employee has a small
 in-memory pool of Gemini-written nudges, refilled in the background when it runs low (one Gemini call per ~8
 nudges). When the pool is empty (first call, Gemini unavailable) a built-in nudge is served instead.
+
+Every nudge served is saved (background thread, so the request stays fast) as:
+    question         question_id = nudge_id, trigger_type ADHOC, source GEMINI/TEMPLATE,
+                     is_active = false (never shows up as a pending check-in),
+                     context_data = {kind: SUPPORT_NUDGE, category, emoji, title, message, generated_by}
+    question_option  the two buttons: acknowledge (display_order 1), skip (display_order 2)
+No employee_response is written, so nudges never affect the wellbeing score or the risk model.
 """
 from __future__ import annotations
 
@@ -18,10 +24,15 @@ from datetime import datetime, timezone
 from pydantic import BaseModel, Field, field_validator
 
 from config import settings
+from services.shiftguard_repository import SUPPORT_NUDGE_KIND
 
 logger = logging.getLogger(__name__)
 
-POOL_TARGET = 8          # nudges generated per Gemini call
+PROMPT_VERSION = "shiftguard-nudge-v1"
+TRIGGER_TYPE = "ADHOC"       # allowed by chk_question_trigger_type (Supabase) and Django's TriggerType
+OPTION_SCORES = {"acknowledge": 2, "skip": 1}   # stored only to describe the buttons; never used for scoring
+
+POOL_TARGET = 8         # nudges generated per Gemini call
 REFILL_BELOW = 3         # refill in the background when fewer remain
 RECENT_MEMORY = 6        # do not repeat the last N titles for an employee
 CATEGORIES = ("hydration", "movement", "breathing", "rest", "nutrition", "posture", "eyes", "connection", "mindfulness")
@@ -129,11 +140,12 @@ Rules:
 - Do not repeat these recent titles: {recent or 'none'}.
 - title max 40 characters, message max 140 characters, action_label 1-4 words (the "I did it" button).
 """
-        batch = None
+        batch, used_model = None, None
         for model in [settings.GEMINI_MODEL, *get_gemini_fallback_models()]:
             try:
                 result = get_gemini_llm(model=model).with_structured_output(NudgeBatch).invoke(prompt)
                 batch = result if isinstance(result, NudgeBatch) else NudgeBatch(**result)
+                used_model = model
                 break
             except (GoogleAPIError, GoogleRateLimitError) as e:
                 logger.warning("Gemini %s unavailable for nudges: %s", model, e)
@@ -144,7 +156,7 @@ Rules:
                 pool = _pools.setdefault(employee_id, deque())
                 for n in batch.nudges:
                     if n.title not in recent:
-                        pool.append(n)
+                        pool.append((n, used_model))
             logger.info("Nudge pool refilled for %s (%d)", employee_id, len(batch.nudges))
     except Exception:
         logger.exception("Nudge refill failed for %s", employee_id)
@@ -153,23 +165,77 @@ Rules:
             _refilling.discard(employee_id)
 
 
-def next_nudge(employee_id: str) -> tuple[dict, bool]:
-    """Return (nudge, start_refill). start_refill=True means the caller should run _refill in the background."""
+def next_nudge(employee_id: str) -> tuple[dict, bool, str | None]:
+    """
+    Return (nudge, start_refill, model_name). start_refill=True means the caller should run _refill in the
+    background. model_name is the Gemini model that wrote the nudge (None for a built-in one).
+    """
     with _lock:
         pool = _pools.setdefault(employee_id, deque())
         recent = _recent.setdefault(employee_id, deque(maxlen=RECENT_MEMORY))
         if pool:
-            n = pool.popleft()
+            n, model_name = pool.popleft()
             nudge = _shape(employee_id, n, "gemini")
         else:
             options = [f for f in FALLBACK_NUDGES if f[2] not in recent] or FALLBACK_NUDGES
-            nudge = _shape(employee_id, random.choice(options), "template")
+            nudge, model_name = _shape(employee_id, random.choice(options), "template"), None
         recent.append(nudge["title"])
         start_refill = len(pool) < REFILL_BELOW and employee_id not in _refilling
         if start_refill:
             _refilling.add(employee_id)
-    return nudge, start_refill
+    return nudge, start_refill, model_name
 
 
 def refill_in_background(employee_id: str) -> None:
     threading.Thread(target=_refill, args=(employee_id,), daemon=True, name=f"nudge-refill-{employee_id[:8]}").start()
+
+
+def save_nudge(employee_id: str, nudge: dict, model_name: str | None) -> None:
+    """Store a served nudge as an inactive `question` (id = nudge_id) with its two buttons as `question_option`."""
+    from psycopg.types.json import Jsonb
+    from services.db_service import SupabaseDBConnectionManager
+
+    context = {
+        "kind": SUPPORT_NUDGE_KIND,
+        "category": nudge["category"],
+        "emoji": nudge["emoji"],
+        "title": nudge["title"],
+        "message": nudge["message"],
+        "generated_by": nudge["generated_by"],
+    }
+    source = "GEMINI" if nudge["generated_by"] == "gemini" else "TEMPLATE"
+    try:
+        with SupabaseDBConnectionManager() as db:
+            connection = db.db_connection()
+            if connection is None:
+                raise ConnectionError("Unable to connect to the Supabase database.")
+            try:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        INSERT INTO question (question_id, question_text, source, trigger_type,
+                                              generated_for_employee_id, context_data, model_name, prompt_version,
+                                              is_active, expires_at)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, false, NULL)
+                        """,
+                        (nudge["nudge_id"], f"{nudge['title']} - {nudge['message']}", source, TRIGGER_TYPE,
+                         employee_id, Jsonb(context), model_name, PROMPT_VERSION),
+                    )
+                    for order, option in enumerate(nudge["options"], start=1):
+                        cursor.execute(
+                            "INSERT INTO question_option (question_id, option_text, normalized_score, display_order) "
+                            "VALUES (%s, %s, %s, %s)",
+                            (nudge["nudge_id"], option["label"], OPTION_SCORES[option["id"]], order),
+                        )
+                connection.commit()
+            except Exception:
+                connection.rollback()
+                raise
+        logger.info("Saved nudge %s for employee %s", nudge["nudge_id"], employee_id)
+    except Exception:
+        logger.exception("Could not save nudge %s for employee %s", nudge["nudge_id"], employee_id)
+
+
+def save_nudge_in_background(employee_id: str, nudge: dict, model_name: str | None) -> None:
+    threading.Thread(target=save_nudge, args=(employee_id, nudge, model_name), daemon=True,
+                     name=f"nudge-save-{employee_id[:8]}").start()
