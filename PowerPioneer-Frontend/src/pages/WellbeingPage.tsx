@@ -2,18 +2,17 @@ import { useMemo } from "react";
 import { RefreshCw } from "lucide-react";
 import { api } from "../api/client";
 import type {
-  EmployeeResponse,
   Question,
   RiskBand,
-  RiskPrediction,
   RiskSnapshot,
   WellbeingResult,
   WellbeingSummary,
 } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
-import { featureLabel, formatDate, formatDateTime, label, num } from "../lib/format";
+import { featureLabel, formatDate, label, num } from "../lib/format";
 import { useAction, useAsync } from "../lib/useAsync";
-import { AsyncBlock, DataTable, ErrorNote, PageHeader, Panel, Pill } from "../components/ui";
+import { AsyncBlock, ErrorNote, Loading, PageHeader, Panel, Pill } from "../components/ui";
+import { MoodTrend } from "../components/MoodTrend";
 import type { Tone } from "../components/ui";
 
 // eslint-disable-next-line react-refresh/only-export-components
@@ -30,17 +29,9 @@ export default function WellbeingPage() {
   const action = useAction();
 
   const summary = useAsync(() => api.get<WellbeingSummary>("/wellbeing/me/"), []);
-  const predictions = useAsync(
-    () => api.list<RiskPrediction>("/risk-predictions/", { employee: meId, ordering: "-predicted_at" }),
-    [meId],
-  );
   const snapshot = useAsync(
     async () =>
       (await api.list<RiskSnapshot>("/risk-snapshots/", { employee: meId, ordering: "-snapshot_date" }))[0] ?? null,
-    [meId],
-  );
-  const responses = useAsync(
-    () => api.list<EmployeeResponse>("/employee-responses/", { employee: meId, ordering: "-responded_at" }),
     [meId],
   );
   const questions = useAsync(() => api.listAll<Question>("/questions/"), []);
@@ -53,7 +44,7 @@ export default function WellbeingPage() {
   const recalculate = () =>
     action.run(async () => {
       await api.post<WellbeingResult>("/wellbeing/calculate/", { employee_id: meId });
-      await Promise.all([summary.reload(), predictions.reload(), snapshot.reload()]);
+      await Promise.all([summary.reload(), snapshot.reload()]);
     });
 
   const s = summary.data;
@@ -154,48 +145,16 @@ export default function WellbeingPage() {
         </Panel>
       </div>
 
-      <Panel kicker="History" title="Risk predictions">
-        <AsyncBlock loading={predictions.loading} error={predictions.error} onRetry={predictions.reload}>
-          <DataTable
-            rows={predictions.data ?? []}
-            rowKey={(p) => p.prediction_id}
-            empty="No predictions yet."
-            columns={[
-              { header: "Predicted", render: (p) => <strong>{formatDateTime(p.predicted_at)}</strong> },
-              { header: "Band", render: (p) => <Pill tone={bandTone[p.risk_band]}>{label(p.risk_band)}</Pill> },
-              { header: "Risk score", render: (p) => num(p.risk_score) },
-              { header: "Model", render: (p) => <small>{p.model_name} v{p.model_version}</small> },
-              {
-                header: "Main factor",
-                render: (p) => (p.explanations[0] ? featureLabel(p.explanations[0].feature_name) : "—"),
-              },
-            ]}
-          />
-        </AsyncBlock>
+      <Panel kicker="Private check-ins" title="How my mood has shifted">
+        {questions.error ? (
+          <ErrorNote message={questions.error} />
+        ) : questions.loading ? (
+          <Loading text="Loading your check-ins…" />
+        ) : (
+          <MoodTrend employeeId={meId} questionById={questionById} />
+        )}
       </Panel>
 
-      <Panel kicker="Private check-ins" title="My recent answers">
-        <AsyncBlock loading={responses.loading || questions.loading} error={responses.error ?? questions.error} onRetry={responses.reload}>
-          <DataTable
-            rows={responses.data ?? []}
-            rowKey={(r) => r.response_id}
-            empty="You have not answered any check-ins yet."
-            columns={[
-              {
-                header: "Question",
-                width: "minmax(0, 2fr)",
-                render: (r) => <strong>{questionById.get(r.question_id)?.question_text ?? "Question"}</strong>,
-              },
-              {
-                header: "Your answer",
-                render: (r) =>
-                  questionById.get(r.question_id)?.options.find((o) => o.option_id === r.option_id)?.option_text ?? "—",
-              },
-              { header: "Answered", render: (r) => formatDateTime(r.responded_at) },
-            ]}
-          />
-        </AsyncBlock>
-      </Panel>
     </main>
   );
 }

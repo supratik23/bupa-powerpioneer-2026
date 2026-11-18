@@ -579,6 +579,26 @@ html[data-daypart="evening"] .pp-bubble {
 html[data-daypart="evening"] .pp-system-line {
     color: hsl(218 13% 70%)
 }
+html[data-daypart="evening"] .mood-dir.up {
+    color: hsl(170 75% 81%)
+}
+html[data-daypart="evening"] .mood-dir.down {
+    color: hsl(353 51% 73%)
+}
+html[data-daypart="evening"] .mood-answer.m4,
+html[data-daypart="evening"] .mood-answer.m5 {
+    color: hsl(172 75% 82%)
+}
+html[data-daypart="evening"] .mood-answer.m1,
+html[data-daypart="evening"] .mood-answer.m2 {
+    color: hsl(349 60% 75%)
+}
+html[data-daypart="evening"][data-daypart="evening"] .mood-dir.up,
+html[data-daypart="evening"][data-daypart="evening"] .mood-zone-label.good,
+html[data-daypart="evening"][data-daypart="evening"] .mood-answer.m4,
+html[data-daypart="evening"][data-daypart="evening"] .mood-answer.m5 {
+    color: hsl(166 65% 70%)
+}
 html[data-daypart="evening"] .tl-stats > div {
     background: hsl(220 42% 19%)
 }

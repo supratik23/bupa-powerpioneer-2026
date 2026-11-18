@@ -364,3 +364,7 @@ html[data-daypart="evening"] .dp-auto em {
   color: #7fe3cf;
   background: rgba(19, 151, 125, 0.22);
 }
+
+html[data-daypart] .filter-tabs button.active {
+  color: var(--dp-accent-text);
+}

@@ -11,6 +11,7 @@ import {
   Clock3,
   Download,
   Heart,
+  HeartPulse,
   Info,
   Leaf,
   LockKeyhole,
@@ -74,7 +75,8 @@ import RosterPage from "./pages/RosterPage";
 import WellbeingPage from "./pages/WellbeingPage";
 import AdminPage from "./pages/admin/AdminPage";
 
-type Role = "employee" | "manager";
+/** Pages reachable from the main tab switcher in the header. */
+type Role = "employee" | "manager" | "wellbeing";
 type RiskLevel = "Needs attention" | "Keep an eye" | "Doing well";
 type Tone = "blue" | "amber" | "violet" | "teal";
 
@@ -242,6 +244,13 @@ function RoleSwitch({
           Team view
         </button>
       )}
+      <button
+        className={role === "wellbeing" ? "active" : ""}
+        onClick={() => setRole("wellbeing")}
+      >
+        <HeartPulse size={16} />
+        My wellbeing
+      </button>
     </div>
   );
 }
@@ -257,7 +266,7 @@ function AppHeader({
 }) {
   const { isManager } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const role: Role | null = page === "employee" || page === "manager" ? page : null;
+  const role: Role | null = page === "employee" || page === "manager" || page === "wellbeing" ? page : null;
   return (
     <header className="app-header">
       <BrandMark />
