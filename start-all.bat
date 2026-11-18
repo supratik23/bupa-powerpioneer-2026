@@ -13,6 +13,8 @@ set "BACKEND=%ROOT%PowerPioneer-Backend-Core"
 set "FRONTEND=%ROOT%PowerPioneer-Frontend"
 set "AGENT=%ROOT%PowerPioneer-AI\langgraph-agent"
 set "AGENT_PORT=8001"
+set "BACKEND_PORT=8000"
+set "FRONTEND_PORT=5173"
 
 REM ---- Check tools ----
 where python >nul 2>nul || (echo [ERROR] Python not found. Install it from python.org & pause & exit /b 1)
@@ -81,10 +83,19 @@ set "START_AGENT=1"
 
 REM ---- Launch ----
 :launch
+REM ---- Free the ports: stop anything still listening from a previous run ----
+echo.
+echo === Freeing ports %BACKEND_PORT%, %AGENT_PORT%, %FRONTEND_PORT% ===
+call :kill_port %BACKEND_PORT%
+call :kill_port %AGENT_PORT%
+call :kill_port %FRONTEND_PORT%
+REM Give Windows a moment to release the sockets
+timeout /t 2 /nobreak >nul
+
 echo.
 echo === Starting servers ===
-start "ShiftGuard Backend"  cmd /k "cd /d "%BACKEND%" && .venv\Scripts\python.exe manage.py runserver"
-start "ShiftGuard Frontend" cmd /k "cd /d "%FRONTEND%" && npm run dev"
+start "ShiftGuard Backend"  cmd /k "cd /d "%BACKEND%" && .venv\Scripts\python.exe manage.py runserver 127.0.0.1:%BACKEND_PORT%"
+start "ShiftGuard Frontend" cmd /k "cd /d "%FRONTEND%" && npm run dev -- --port %FRONTEND_PORT% --strictPort"
 REM Agent must run from its own folder (MCP servers are resolved relative to it) and on 8001 to avoid Django's 8000
 if "%START_AGENT%"=="1" start "ShiftGuard AI Agent" cmd /k "cd /d "%AGENT%" && .venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port %AGENT_PORT%"
 
@@ -102,3 +113,23 @@ echo.
 echo  To stop: close the "ShiftGuard ..." server windows.
 echo.
 pause
+
+endlocal
+goto :eof
+
+REM ------------------------------------------------------------
+REM  :kill_port <port>
+REM  Force-kills every process (and its child tree) LISTENING on <port>.
+REM  Matches ":<port> " so e.g. 8000 does not also hit 80001.
+REM ------------------------------------------------------------
+:kill_port
+set "KP_FOUND=0"
+for /f "tokens=4,5" %%a in ('netstat -ano ^| findstr /c:":%~1 " ^| findstr /c:"LISTENING"') do (
+    if not "%%b"=="0" (
+        set "KP_FOUND=1"
+        echo Port %~1 in use by PID %%b - stopping it...
+        taskkill /F /T /PID %%b >nul 2>nul
+    )
+)
+if "%KP_FOUND%"=="0" echo Port %~1 is free.
+exit /b 0
