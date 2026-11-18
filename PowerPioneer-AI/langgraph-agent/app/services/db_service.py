@@ -4,6 +4,7 @@ import logging
 from typing import Any, Sequence
 import psycopg
 from psycopg.rows import dict_row
+from urllib.parse import quote, unquote
 from config import settings
 
 logging.basicConfig(level=logging.INFO)
@@ -98,6 +99,9 @@ class SupabaseDBConnectionManager:
             )
             self.db_url = None
 
+        if self.db_url:
+            self.db_url = self._escape_url_password(self.db_url)
+
         if not self.db_url and not all([self.host, self.database, self.user, self.password]):
             logger.error("Supabase database connection parameters are not fully set in environment variables.")
             raise ValueError(
@@ -110,6 +114,26 @@ class SupabaseDBConnectionManager:
     def _has_placeholder(db_url: str) -> bool:
         """True when the connection string was copied from the Supabase dashboard without filling the password."""
         return "[YOUR-" in db_url.upper() or "[PASSWORD]" in db_url.upper()
+
+    @staticmethod
+    def _escape_url_password(db_url: str) -> str:
+        """
+        Percent-encode the password inside postgresql://user:password@host/db when it contains reserved
+        characters such as '@', '#', '/' or ':' (Supabase passwords often do). The host starts after the LAST '@'.
+        Already-encoded passwords (e.g. '%40') are left unchanged.
+        """
+        scheme, sep, rest = db_url.partition("://")
+        if not sep or "@" not in rest:
+            return db_url
+        # Host, port and database name never contain '@', so the credentials end at the last '@'.
+        userinfo, _, hostpart = rest.rpartition("@")
+        user, colon, password = userinfo.partition(":")
+        if not colon:
+            return db_url
+        escaped = quote(unquote(password), safe="")
+        if escaped != password:
+            logger.warning("SUPABASE_DB_URL password contains reserved characters; percent-encoding it.")
+        return f"{scheme}://{user}:{escaped}@{hostpart}"
 
     def _connect_kwargs(self) -> dict[str, Any]:
         kwargs: dict[str, Any] = {
