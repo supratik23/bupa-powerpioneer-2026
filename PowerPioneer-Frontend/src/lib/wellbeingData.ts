@@ -49,11 +49,3 @@ export function withSupabaseRows(
       : [...(explained?.explanations ?? [])].sort((a, b) => a.display_order - b.display_order).slice(0, 5),
   };
 }
-
-/** ISO datetime `days` before the newest snapshot date (falls back to today). */
-export function daysBeforeLatest(snapshots: RiskSnapshot[], days: number): string {
-  const latest = snapshots.reduce<string | null>((max, s) => (!max || s.snapshot_date > max ? s.snapshot_date : max), null);
-  const from = latest ? new Date(`${latest}T00:00:00`) : new Date();
-  from.setDate(from.getDate() - days);
-  return from.toISOString();
-}

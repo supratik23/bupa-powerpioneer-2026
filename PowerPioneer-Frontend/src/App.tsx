@@ -54,7 +54,7 @@ import {
   label,
   wellbeingPercent,
 } from "./lib/format";
-import { daysBeforeLatest, withSupabaseRows } from "./lib/wellbeingData";
+import { withSupabaseRows } from "./lib/wellbeingData";
 import { RosterTimelineDrawer } from "./components/DayTimeline";
 import { DayPlan } from "./components/DayPlan";
 import { ReturnToWorkTeam } from "./components/ReturnToWork";
@@ -207,7 +207,8 @@ function toMember(summary: WellbeingSummary, employee: Employee | undefined, ris
     department: employee?.department ?? null,
     risk,
     // Risk-point change since the previous prediction / snapshot.
-    delta: history.length >= 2 ? Math.round(history[history.length - 1] - history[history.length - 2]) : 0,
+    // Risk-point change across the whole series (the Team view's selected period).
+    delta: history.length >= 2 ? Math.round(history[history.length - 1] - history[0]) : 0,
     level: levelFor(summary.latest_risk_band),
     band: summary.latest_risk_band,
     factors: factors.length ? factors : [scored ? "No major risk factors" : "Not calculated yet"],
@@ -1270,28 +1271,33 @@ function ManagerView({ recentUpdate }: { recentUpdate: boolean }) {
   const [filter, setFilter] = useState<"All" | "Needs attention" | "Keep an eye">("All");
   const [weeks, setWeeks] = useState(12);
   const [department, setDepartment] = useState("All");
+  // Everything period-based on this page (trend chart, member trends, rising/improving,
+  // leading factors) uses the same window. Status counts and return-to-work stay "as of now".
+  const windowStart = isoDate(new Date(Date.now() - weeks * 7 * 86400000));
   const snapshots = useAsync(
     () =>
       api.listAll<RiskSnapshot>("/risk-snapshots/", {
-        snapshot_date__gte: isoDate(new Date(Date.now() - weeks * 7 * 86400000)),
+        snapshot_date__gte: windowStart,
         // No is_training_record filter: every snapshot the Supabase pipeline wrote is flagged as training.
         ordering: "-snapshot_date",
       }),
-    [weeks],
-  );
-  // Last 7 days of model predictions, anchored on the newest snapshot so stale data still shows.
-  const predictionsFrom = useMemo(
-    () => (snapshots.data ? daysBeforeLatest(snapshots.data, 7) : null),
-    [snapshots.data],
+    [windowStart],
   );
   const predictions = useAsync(
     () =>
-      predictionsFrom
-        ? api.listAll<RiskPrediction>("/risk-predictions/", { predicted_at__gte: predictionsFrom, ordering: "predicted_at" })
-        : Promise.resolve([] as RiskPrediction[]),
-    [predictionsFrom],
+      api.listAll<RiskPrediction>("/risk-predictions/", {
+        predicted_at__gte: new Date(`${windowStart}T00:00:00`).toISOString(),
+        ordering: "predicted_at",
+      }),
+    [windowStart],
   );
   const riskSeries = useMemo(() => riskSeriesByEmployee(predictions.data ?? []), [predictions.data]);
+  // Risk drivers seen for each person at any point in the period (SHAP explanations on their predictions).
+  const driversInPeriod = useMemo(() => {
+    const map = new Map<string, RiskPrediction["explanations"]>();
+    (predictions.data ?? []).forEach((p) => map.set(p.employee_id, [...(map.get(p.employee_id) ?? []), ...(p.explanations ?? [])]));
+    return map;
+  }, [predictions.data]);
 
   const members = useMemo(
     () =>
@@ -1318,7 +1324,14 @@ function ManagerView({ recentUpdate }: { recentUpdate: boolean }) {
     return weeklySeries((snapshots.data ?? []).filter((snap) => ids.has(snap.employee_id)), weeks);
   }, [snapshots.data, teamMembers, weeks]);
   const insight = trendInsight(series);
-  const factors = leadingFactors(teamMembers.map((m) => m.drivers), series);
+  const factors = leadingFactors(
+    teamMembers.map((m) => {
+      const seen = driversInPeriod.get(m.id);
+      return seen?.length ? seen : m.drivers;
+    }),
+    series,
+  );
+  const periodLabel = `${weeks} wks`;
   const selected = members.find((m) => m.id === selectedId) ?? null;
 
   const counts = useMemo(
@@ -1380,27 +1393,27 @@ function ManagerView({ recentUpdate }: { recentUpdate: boolean }) {
           <div className="summary-icon"><Activity size={20} /></div>
           <div><span>Needs attention</span><strong>{counts.high}</strong><small>People with rising indicators</small></div>
           {counts.highRising > 0 ? (
-            <span className="summary-change"><ArrowUpRight size={14} /> {counts.highRising} rising</span>
+            <span className="summary-change"><ArrowUpRight size={14} /> {counts.highRising} rising · last {periodLabel}</span>
           ) : (
-            <span className="summary-change neutral">No change</span>
+            <span className="summary-change neutral">No change · last {periodLabel}</span>
           )}
         </article>
         <article className="summary-card amber">
           <div className="summary-icon"><CircleHelp size={20} /></div>
           <div><span>Keep an eye</span><strong>{counts.watch}</strong><small>Patterns worth monitoring</small></div>
           {counts.watchRising > 0 ? (
-            <span className="summary-change"><ArrowUpRight size={14} /> {counts.watchRising} rising</span>
+            <span className="summary-change"><ArrowUpRight size={14} /> {counts.watchRising} rising · last {periodLabel}</span>
           ) : (
-            <span className="summary-change neutral">No change</span>
+            <span className="summary-change neutral">No change · last {periodLabel}</span>
           )}
         </article>
         <article className="summary-card green">
           <div className="summary-icon"><Leaf size={20} /></div>
           <div><span>Doing well</span><strong>{counts.well}</strong><small>Stable or improving patterns</small></div>
           {counts.improving > 0 ? (
-            <span className="summary-change positive"><ArrowDownRight size={14} /> {counts.improving} improving</span>
+            <span className="summary-change positive"><ArrowDownRight size={14} /> {counts.improving} improving · last {periodLabel}</span>
           ) : (
-            <span className="summary-change neutral">No change</span>
+            <span className="summary-change neutral">No change · last {periodLabel}</span>
           )}
         </article>
       </section>
