@@ -203,14 +203,6 @@ export default function AuthPage() {
         ) : (
           <SignUpForm onSwitch={() => setMode("login")} />
         )}
-        {mode === "login" && (
-          <div className="pp-demo-hint">
-            Demo accounts (after <code>python manage.py seed_data</code>): manager{" "}
-            <code>jordan.reyes@powerpioneer.local</code>, nurse <code>casey.patel@powerpioneer.local</code> —
-            password <code>Password@123</code>. Admin <code>admin@powerpioneer.local</code> /{" "}
-            <code>Admin@12345</code>.
-          </div>
-        )}
       </section>
     </main>
   );

@@ -520,9 +520,6 @@ html[data-daypart="evening"] .pp-chat-compose input {
 html[data-daypart="evening"] .pp-check {
     color: hsl(216 43% 79%)
 }
-html[data-daypart="evening"] .pp-demo-hint code {
-    color: hsl(216 43% 79%)
-}
 html[data-daypart="evening"] .pp-chip-button:hover {
     background: hsl(214 42% 19%)
 }

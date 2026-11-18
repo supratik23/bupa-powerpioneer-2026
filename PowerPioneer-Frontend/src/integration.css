@@ -323,20 +323,6 @@
   font-size: inherit;
 }
 
-.pp-demo-hint {
-  margin-top: 18px;
-  padding-top: 16px;
-  border-top: 1px solid var(--line);
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1.6;
-}
-
-.pp-demo-hint code {
-  color: #33517f;
-  font-size: 11px;
-}
-
 /* ---------- header dropdowns ------------------------------------------ */
 .pp-chip-button {
   border: 0;
