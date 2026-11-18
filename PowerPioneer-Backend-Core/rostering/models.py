@@ -133,3 +133,51 @@ class Attendance(TimeStampedModel):
 
     def __str__(self):
         return f"{self.employee_id} {self.attendance_date} {self.attendance_status}"
+
+
+class AppointmentType(models.TextChoices):
+    ASSESSMENT = "ASSESSMENT", "Assessment"
+    CARE_PLAN_REVIEW = "CARE_PLAN_REVIEW", "Care plan review"
+    DOCUMENTATION = "DOCUMENTATION", "Documentation"
+    END_OF_LIFE_CARE = "END_OF_LIFE_CARE", "End-of-life care"
+    HANDOVER = "HANDOVER", "Handover"
+    MEDICATION_ROUND = "MEDICATION_ROUND", "Medication round"
+    PERSONAL_CARE = "PERSONAL_CARE", "Personal care"
+
+
+class AppointmentStatus(models.TextChoices):
+    """Values used in appointment.status (no DB constraint; the pipeline writes SCHEDULED)."""
+
+    SCHEDULED = "SCHEDULED", "Scheduled"
+    COMPLETED = "COMPLETED", "Completed"
+
+
+class Appointment(models.Model):
+    """
+    Table ``appointment``: an employee's scheduled care tasks within a shift day.
+
+    The table is created and filled by the Supabase data pipeline, so Django
+    only reads it (``managed = False``: migrations never create or alter it).
+    Times are local wall-clock times on ``appointment_date``.
+    """
+
+    appointment_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    employee = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.DO_NOTHING, related_name="appointments", db_constraint=False
+    )
+    appointment_date = models.DateField()
+    start_time = models.TimeField()
+    end_time = models.TimeField()
+    title = models.CharField(max_length=200)
+    location = models.CharField(max_length=100, null=True, blank=True)
+    appointment_type = models.CharField(max_length=40, choices=AppointmentType.choices, null=True, blank=True)
+    status = models.CharField(max_length=20, null=True, blank=True)
+    created_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        managed = False
+        db_table = "appointment"
+        ordering = ["appointment_date", "start_time"]
+
+    def __str__(self):
+        return f"{self.employee_id} {self.appointment_date} {self.start_time:%H:%M} {self.title}"

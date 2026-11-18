@@ -5,7 +5,7 @@ from rest_framework import serializers
 
 from employees.models import Employee
 
-from .models import AttendanceStatus, Attendance, LeaveRequest, LeaveStatus, ShiftRoster
+from .models import Appointment, AttendanceStatus, Attendance, LeaveRequest, LeaveStatus, ShiftRoster
 
 
 def employee_field(**kwargs):
@@ -113,3 +113,17 @@ class AttendanceSerializer(serializers.ModelSerializer):
         if status != AttendanceStatus.ABSENT and absence_type:
             raise serializers.ValidationError({"absence_type": "Only allowed when attendance_status is ABSENT."})
         return attrs
+
+
+class AppointmentSerializer(serializers.ModelSerializer):
+    """Read-only: appointments are written by the Supabase data pipeline."""
+
+    employee_id = serializers.UUIDField(read_only=True)
+
+    class Meta:
+        model = Appointment
+        fields = [
+            "appointment_id", "employee_id", "appointment_date", "start_time", "end_time",
+            "title", "location", "appointment_type", "status", "created_at",
+        ]
+        read_only_fields = fields
