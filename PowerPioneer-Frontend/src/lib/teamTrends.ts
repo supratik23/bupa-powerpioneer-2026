@@ -1,10 +1,10 @@
 import type { RiskSnapshot } from "../api/types";
-import { featureLabel } from "./format";
+import { featureLabel, wellbeingPercent } from "./format";
 
 /** One point per week, oldest first. null = no snapshots that week. */
 export interface WeeklyPoint {
   weekStart: Date;
-  /** Average wellbeing_score (0–100). */
+  /** Average wellbeing_score, converted from the 1–4 check-in scale to 0–100. */
   wellbeing: number | null;
   /** Average hours worked as % of contracted hours (actual_hours_worked_30d / contracted_hours_30d). */
   workload: number | null;
@@ -38,7 +38,7 @@ export function weeklySeries(snapshots: RiskSnapshot[], weeks: number, now = new
   });
   return buckets.map(({ weekStart, rows }) => ({
     weekStart,
-    wellbeing: avg(rows.filter((r) => r.wellbeing_score != null).map((r) => Number(r.wellbeing_score))),
+    wellbeing: avg(rows.map((r) => wellbeingPercent(r.wellbeing_score)).filter((v): v is number => v !== null)),
     workload: avg(
       rows
         .filter((r) => Number(r.contracted_hours_30d) > 0)

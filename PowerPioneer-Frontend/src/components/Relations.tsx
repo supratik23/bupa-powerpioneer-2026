@@ -23,6 +23,7 @@ export function Relations({ employee, onChanged }: { employee: Employee; onChang
   const [buddyId, setBuddyId] = useState("");
   const [suggestions, setSuggestions] = useState<BuddySuggestion[] | null>(null);
   const id = employee.employee_id;
+  const hasBuddy = Boolean(employee.buddy_employee_id);
 
   const others = employees
     .filter((e) => e.is_active && e.employee_id !== id)
@@ -71,26 +72,30 @@ export function Relations({ employee, onChanged }: { employee: Employee; onChang
           <span>Buddy</span>
           <div className="pp-muted">{employee.buddy?.full_name ?? "Not assigned"}</div>
           <div className="pp-inline-actions">
-            <select className="secondary-button" value={buddyId} onChange={(e) => setBuddyId(e.target.value)} aria-label="New buddy">
-              <option value="">Choose buddy…</option>
-              {others.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
-            <button className="secondary-button small" disabled={busy || !buddyId} onClick={() => void post("assign-buddy", { buddy_employee_id: buddyId })}>
-              Assign
-            </button>
-            {employee.buddy_employee_id && (
+            {hasBuddy ? (
+              // A buddy is already assigned: only allow removing them (remove first to pick someone else).
               <button className="secondary-button small danger" disabled={busy} onClick={() => void post("remove-buddy", { reason: "Removed from ShiftGuard UI" })}>
                 Remove
               </button>
+            ) : (
+              <>
+                <select className="secondary-button" value={buddyId} onChange={(e) => setBuddyId(e.target.value)} aria-label="New buddy">
+                  <option value="">Choose buddy…</option>
+                  {others.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+                <button className="secondary-button small" disabled={busy || !buddyId} onClick={() => void post("assign-buddy", { buddy_employee_id: buddyId })}>
+                  Assign
+                </button>
+                <button className="secondary-button small" disabled={busy} onClick={() => void suggest()}>
+                  Suggest buddies
+                </button>
+              </>
             )}
-            <button className="secondary-button small" disabled={busy} onClick={() => void suggest()}>
-              Suggest buddies
-            </button>
           </div>
         </div>
       </div>
 
-      {suggestions && (
+      {suggestions && !hasBuddy && (
         <ul className="factor-list" style={{ marginTop: 14 }}>
           {suggestions.length === 0 && <li><div><small>No suitable buddies with spare capacity.</small></div></li>}
           {suggestions.map((s, i) => (

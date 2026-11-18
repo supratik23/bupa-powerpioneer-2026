@@ -44,10 +44,51 @@ const FEATURE_LABELS: Record<string, string> = {
   maternity_adjustments_fulfilment_ratio: "Return-to-work adjustments missed",
   nursing_or_recovery_breaks_missed_30d: "Missed nursing / recovery breaks",
   return_schedule_variance_hours_30d: "Schedule variance after return",
+  days_since_maternity_return: "Recent return from maternity leave",
+  end_of_life_care_7d: "End-of-life care (7 days)",
+  wellbeing_score: "Low check-in wellbeing",
 };
 
 export function featureLabel(name: string): string {
   return FEATURE_LABELS[name] ?? label(name);
+}
+
+/**
+ * Supabase stores wellbeing_score as the mean check-in answer on the 1–4
+ * question_option.normalized_score scale. The UI shows wellbeing as 0–100.
+ */
+export const WELLBEING_SCALE = { min: 1, max: 4 } as const;
+
+/** wellbeing_score (1–4) -> 0–100. Values above 4 are legacy 0–100 rule-engine scores and pass through. */
+export function wellbeingPercent(score: number | string | null | undefined): number | null {
+  if (score === null || score === undefined || score === "") return null;
+  const n = Number(score);
+  if (!Number.isFinite(n)) return null;
+  if (n > WELLBEING_SCALE.max) return Math.min(100, n);
+  const pct = ((n - WELLBEING_SCALE.min) / (WELLBEING_SCALE.max - WELLBEING_SCALE.min)) * 100;
+  return Math.max(0, Math.min(100, pct));
+}
+
+/**
+ * Wellbeing change (0–100 points) between the latest snapshot and the one about `days`
+ * earlier (the newest snapshot on or before latest − days; else the oldest available).
+ * Snapshots are daily, so a day-on-day change is mostly noise — a week is more meaningful.
+ */
+export function wellbeingChange(
+  history: Array<{ snapshot_date: string; wellbeing_score: number | string | null }>,
+  days = 7,
+): { delta: number; since: string } | null {
+  const scored = history
+    .map((h) => ({ date: h.snapshot_date, pct: wellbeingPercent(h.wellbeing_score) }))
+    .filter((h): h is { date: string; pct: number } => h.pct !== null)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  if (scored.length < 2) return null;
+  const latest = scored[scored.length - 1];
+  const cutoff = new Date(`${latest.date}T00:00:00`);
+  cutoff.setDate(cutoff.getDate() - days);
+  const target = isoDate(cutoff);
+  const base = [...scored.slice(0, -1)].reverse().find((h) => h.date <= target) ?? scored[0];
+  return { delta: latest.pct - base.pct, since: base.date };
 }
 
 export function formatDate(value: string | null | undefined): string {

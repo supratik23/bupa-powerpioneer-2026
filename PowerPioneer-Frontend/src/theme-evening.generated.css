@@ -599,6 +599,109 @@ html[data-daypart="evening"][data-daypart="evening"] .mood-answer.m4,
 html[data-daypart="evening"][data-daypart="evening"] .mood-answer.m5 {
     color: hsl(166 65% 70%)
 }
+html[data-daypart="evening"] .rtw-card {
+    background: linear-gradient(135deg, hsl(261 42% 19% / 0.95), hsl(232 30% 16% / 0.96) 55%, hsl(163 42% 22% / 0.9));
+    border-color: hsl(258 42% 26%)
+}
+html[data-daypart="evening"] .rtw-icon {
+    color: hsl(255 66% 70%);
+    background: hsl(258 42% 21%)
+}
+html[data-daypart="evening"] .rtw-week {
+    color: hsl(255 66% 70%);
+    background: hsl(258 42% 21%)
+}
+html[data-daypart="evening"] .rtw-intro {
+    color: hsl(217 21% 77%)
+}
+html[data-daypart="evening"] .rtw-note {
+    color: hsl(256 30% 76%);
+    background: hsl(259 42% 20%);
+    border: 1px solid hsl(259 42% 26%)
+}
+html[data-daypart="evening"] .rtw-note svg {
+    color: hsl(255 66% 70%)
+}
+html[data-daypart="evening"] .rtw-progress {
+    background: hsl(222 28% 25%)
+}
+html[data-daypart="evening"] .rtw-stats > div {
+    background: hsl(223 42% 19% / 0.9)
+}
+html[data-daypart="evening"] .rtw-chip.on {
+    color: hsl(169 75% 82%);
+    background: hsl(159 42% 24%)
+}
+html[data-daypart="evening"] .rtw-chip.unknown {
+    color: hsl(217 17% 76%);
+    background: hsl(218 31% 22%)
+}
+html[data-daypart="evening"] .rtw-chip.off {
+    color: hsl(33 75% 79%);
+    background: hsl(36 42% 24%)
+}
+html[data-daypart="evening"] .rtw-auth {
+    color: hsl(255 66% 70%);
+    background: hsl(258 42% 21%)
+}
+html[data-daypart="evening"] .rtw-member {
+    background: linear-gradient(135deg, hsl(261 42% 19% / 0.9), hsl(232 30% 16% / 0.95));
+    border: 1px solid hsl(258 42% 26%)
+}
+html[data-daypart="evening"] .rtw-member-stats strong {
+    color: hsl(217 39% 83%)
+}
+html[data-daypart="evening"] .wag-trend strong {
+    color: hsl(217 39% 83%)
+}
+html[data-daypart="evening"] .wag-band span {
+    color: hsl(217 21% 77%)
+}
+html[data-daypart="evening"] .wag-band.good {
+    color: hsl(169 75% 82%);
+    background: hsl(160 42% 23%)
+}
+html[data-daypart="evening"] .wag-band.okay {
+    color: hsl(33 75% 79%);
+    background: hsl(39 42% 23%)
+}
+html[data-daypart="evening"] .wag-band.low {
+    color: hsl(21 71% 76%);
+    background: hsl(24 42% 23%)
+}
+html[data-daypart="evening"] .wag-band.verylow {
+    color: hsl(349 60% 75%);
+    background: hsl(351 42% 22%)
+}
+html[data-daypart="evening"] .wag-driver-list.against > strong {
+    color: hsl(21 71% 76%)
+}
+html[data-daypart="evening"] .wag-driver-list.helping > strong {
+    color: hsl(169 75% 82%)
+}
+html[data-daypart="evening"] .wag-driver-list li {
+    background: hsl(216 42% 18%)
+}
+html[data-daypart="evening"] .wag-driver-list li span {
+    color: hsl(217 39% 83%)
+}
+html[data-daypart="evening"] .wag-pattern-summary.ok {
+    color: hsl(169 75% 82%);
+    background: hsl(160 42% 23%)
+}
+html[data-daypart="evening"] .wag-pattern-summary.warn {
+    color: hsl(33 75% 79%);
+    background: hsl(39 42% 23%)
+}
+html[data-daypart="evening"] .pp-stat.warn {
+    background: hsl(39 42% 23%)
+}
+html[data-daypart="evening"] .pp-stat.warn strong {
+    color: hsl(33 75% 79%)
+}
+html[data-daypart="evening"] .rc-side .rc-detail-item {
+    background: hsl(216 42% 18%)
+}
 html[data-daypart="evening"] .tl-stats > div {
     background: hsl(220 42% 19%)
 }
@@ -638,4 +741,89 @@ html[data-daypart="evening"] .schedule-symbol.night {
 html[data-daypart="evening"] .schedule-symbol.oncall {
     color: hsl(176 75% 80%);
     background: hsl(173 42% 24%)
+}
+html[data-daypart="evening"] .schedule-item.selectable:hover {
+    background: hsl(218 42% 19%)
+}
+html[data-daypart="evening"] .schedule-item.selected,
+html[data-daypart="evening"] .schedule-item.selected:hover {
+    background: hsl(217 42% 21%)
+}
+html[data-daypart="evening"] .schedule-chevron {
+    color: hsl(217 19% 70%)
+}
+html[data-daypart="evening"] .shift-tag.appts {
+    color: hsl(217 69% 78%);
+    background: hsl(215 42% 21%)
+}
+html[data-daypart="evening"] .dp-note {
+    color: hsl(42 54% 82%);
+    background: hsl(43 42% 23%)
+}
+html[data-daypart="evening"] .dp-stats > div {
+    background: hsl(220 42% 19%)
+}
+html[data-daypart="evening"] .dp-callout {
+    color: hsl(217 69% 78%);
+    background: hsl(215 42% 21%)
+}
+html[data-daypart="evening"] .dp-callout.eol {
+    color: hsl(286 39% 77%);
+    background: hsl(284 42% 22%)
+}
+html[data-daypart="evening"] .dp-item.completed .tl-copy strong {
+    text-decoration-color: hsl(168 75% 80% / 0.6)
+}
+html[data-daypart="evening"] .dp-check {
+    border: 1px solid hsl(213 42% 30%);
+    color: hsl(217 69% 78%);
+    background: hsl(232 30% 16%)
+}
+html[data-daypart="evening"] .dp-check.on {
+    color: hsl(168 75% 80%);
+    background: hsl(161 42% 24%);
+    border-color: hsl(162 42% 30%)
+}
+html[data-daypart="evening"] .dp-check.on:hover {
+    color: hsl(217 21% 77%);
+    background: hsl(218 31% 22%);
+    border-color: hsl(213 35% 29%)
+}
+html[data-daypart="evening"] .dp-progress {
+    background: hsl(217 32% 26%)
+}
+html[data-daypart="evening"] .dp-node.handover {
+    color: hsl(216 75% 73%);
+    background: hsl(215 42% 21%)
+}
+html[data-daypart="evening"] .dp-node.medication {
+    color: hsl(353 51% 73%);
+    background: hsl(350 42% 21%)
+}
+html[data-daypart="evening"] .dp-node.care {
+    color: hsl(176 75% 80%);
+    background: hsl(171 42% 24%)
+}
+html[data-daypart="evening"] .dp-node.assessment {
+    color: hsl(34 75% 74%);
+    background: hsl(36 42% 24%)
+}
+html[data-daypart="evening"] .dp-node.review {
+    color: hsl(256 63% 71%);
+    background: hsl(255 42% 21%)
+}
+html[data-daypart="evening"] .dp-node.docs {
+    color: hsl(217 21% 77%);
+    background: hsl(218 31% 22%)
+}
+html[data-daypart="evening"] .dp-node.eol {
+    color: hsl(290 47% 74%);
+    background: hsl(284 42% 22%)
+}
+html[data-daypart="evening"] .dp-node.gap {
+    color: hsl(168 75% 80%);
+    background: hsl(161 42% 24%)
+}
+html[data-daypart="evening"] .dp-item.shift .tl-copy strong {
+    color: hsl(217 58% 82%)
 }
