@@ -91,6 +91,13 @@ class SupabaseDBConnectionManager:
             )
             self.db_url = None
 
+        if self.db_url and self._has_placeholder(self.db_url):
+            logger.warning(
+                "SUPABASE_DB_URL still contains a placeholder such as [YOUR-PASSWORD]. "
+                "Ignoring it and using SUPABASE_DB_HOST/USER/PASSWORD."
+            )
+            self.db_url = None
+
         if not self.db_url and not all([self.host, self.database, self.user, self.password]):
             logger.error("Supabase database connection parameters are not fully set in environment variables.")
             raise ValueError(
@@ -98,6 +105,11 @@ class SupabaseDBConnectionManager:
                 "SUPABASE_DB_HOST, SUPABASE_DB_NAME, SUPABASE_DB_USER and SUPABASE_DB_PASSWORD."
             )
         self.connection = None
+
+    @staticmethod
+    def _has_placeholder(db_url: str) -> bool:
+        """True when the connection string was copied from the Supabase dashboard without filling the password."""
+        return "[YOUR-" in db_url.upper() or "[PASSWORD]" in db_url.upper()
 
     def _connect_kwargs(self) -> dict[str, Any]:
         kwargs: dict[str, Any] = {

@@ -16,6 +16,7 @@ from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, ToolMes
 from langchain_core.runnables import Runnable
 from langchain_core.tools import BaseTool
 from ..prompts.prompt_file import system_message_for_tooling_agent, system_message_for_generic_agent
+from ..prompts.prompt_file import system_message_for_shiftguard_agent, build_shiftguard_context_prompt
 
 
 logging.basicConfig(level=logging.INFO)
@@ -251,6 +252,49 @@ def build_gemini_agent_graph(
         raise RuntimeError(f"Failed to build Gemini agent graph: {exc}") from exc
 
 
+def build_shiftguard_agent_graph(
+    llm_with_tools: Runnable,
+    tools: Sequence[BaseTool],
+    checkpointer=None,
+):
+    """
+    ShiftGuard agent graph. No keyword router: every request goes to Gemini with all MCP tools bound,
+    and the LLM decides which tool(s) to call (or answers directly):
+
+        START -> shiftguard_agent_node <-> tools -> END
+    """
+    try:
+        async def shiftguard_agent_node(state: AgentState) -> dict:
+            try:
+                system = SystemMessage(
+                    content=f"{system_message_for_shiftguard_agent}\n\n{build_shiftguard_context_prompt(state)}"
+                )
+                response = await llm_with_tools.ainvoke([system, *state.get("messages", [])])
+                if getattr(response, "tool_calls", None):
+                    logger.info("Gemini selected tools: %s", [call["name"] for call in response.tool_calls])
+                return {"messages": [response]}
+            except Exception:
+                logger.exception(
+                    "ShiftGuard agent node failed. session_id=%s organization_id=%s message_count=%s",
+                    state.get("session_id"), state.get("organization_id"), len(state.get("messages", [])),
+                )
+                raise
+
+        workflow = StateGraph(AgentState)
+        workflow.add_node("shiftguard_agent_node", shiftguard_agent_node)
+        workflow.add_node("tools", ToolNode(list(tools), handle_tool_errors=True))
+        workflow.add_edge(START, "shiftguard_agent_node")
+        workflow.add_conditional_edges("shiftguard_agent_node", tools_condition, {"tools": "tools", END: END})
+        workflow.add_edge("tools", "shiftguard_agent_node")
+
+        graph = workflow.compile(checkpointer=checkpointer or checkpoint_saver)
+        logger.info("ShiftGuard agent graph compiled with %d tools.", len(tools))
+        return graph
+    except Exception as exc:
+        logger.exception("Failed to build ShiftGuard agent graph.")
+        raise RuntimeError(f"Failed to build ShiftGuard agent graph: {exc}") from exc
+
+
 async def get_agent_graph():
     """Get the agent instance"""
     global _agent
@@ -258,8 +302,9 @@ async def get_agent_graph():
         if _agent is None:
             logger.info("Agent graph is not initialized; building it now.")
             # Previous graph (create_agent based, Ollama/OpenAI): _agent = await agent_graph()
-            from app.main import llm, llm_with_tools, available_tools
-            _agent = build_gemini_agent_graph(llm, llm_with_tools, available_tools)
+            # Previous Gemini graph with keyword routing: _agent = build_gemini_agent_graph(llm, llm_with_tools, available_tools)
+            from app.main import llm_with_tools, available_tools
+            _agent = build_shiftguard_agent_graph(llm_with_tools, available_tools)
         return _agent
     except Exception:
         logger.exception("Unable to initialize or retrieve the agent graph.")

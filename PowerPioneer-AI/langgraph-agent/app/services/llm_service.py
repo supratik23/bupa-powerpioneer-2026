@@ -78,6 +78,35 @@ def get_gemini_llm_with_tools(tools: Sequence[BaseTool], llm: Optional[BaseChatM
     logger.info(f"Binding {len(tools)} tools to Gemini LLM: {[tool.name for tool in tools]}")
     return llm.bind_tools(list(tools))
 
+
+def get_gemini_fallback_models() -> list[str]:
+    """Models from GEMINI_FALLBACK_MODELS (comma separated), excluding the primary GEMINI_MODEL."""
+    models = [m.strip() for m in (settings.GEMINI_FALLBACK_MODELS or "").split(",") if m.strip()]
+    return [m for m in dict.fromkeys(models) if m != settings.GEMINI_MODEL]
+
+
+def get_gemini_llm_with_fallbacks(tools: Optional[Sequence[BaseTool]] = None) -> Runnable:
+    """
+    Gemini LLM (optionally with tools bound) that retries on the GEMINI_FALLBACK_MODELS in order when the
+    primary model is overloaded (503 UNAVAILABLE / other 5xx) or rate limited (429 RESOURCE_EXHAUSTED).
+    Other errors (bad API key, invalid request) are not retried.
+    """
+    from langchain_google_genai.chat_models import GoogleAPIError, GoogleRateLimitError
+
+    def build(model: Optional[str] = None) -> Runnable:
+        llm = get_gemini_llm(model=model)
+        return get_gemini_llm_with_tools(tools, llm=llm) if tools else llm
+
+    primary = build()
+    fallback_models = get_gemini_fallback_models()
+    if not fallback_models:
+        return primary
+    logger.info(f"Gemini fallback models (used on 503/429): {fallback_models}")
+    return primary.with_fallbacks(
+        [build(model) for model in fallback_models],
+        exceptions_to_handle=(GoogleAPIError, GoogleRateLimitError),
+    )
+
 class AzureOpenAIClient:
 
     """

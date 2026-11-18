@@ -44,6 +44,31 @@ NOTIFICATION_TEMPLATES = {
             "typeOfMaterial": "Type",
         },
     },
+    # ShiftGuard: tell a manager / buddy that an employee's wellbeing risk is elevated
+    "risk_alert": {
+        "subject": "Wellbeing check-in suggested for {employee_name}",
+        "intro": "ShiftGuard flagged an elevated wellbeing risk. Please arrange a supportive check-in.",
+        "required": ["employee_name"],
+        "fields": {
+            "employee_name": "Employee",
+            "risk_band": "Risk band",
+            "risk_score": "Risk score (0-100)",
+            "snapshot_date": "Date",
+            "key_factors": "Main contributing factors",
+            "recommended_action": "Recommended action",
+        },
+    },
+    # ShiftGuard: remind an employee to answer their wellbeing check-in
+    "checkin_reminder": {
+        "subject": "A quick wellbeing check-in for you, {employee_name}",
+        "intro": "You have a new wellbeing check-in waiting in the ShiftGuard app. It takes less than a minute.",
+        "required": ["employee_name"],
+        "fields": {
+            "employee_name": "Name",
+            "question_text": "Question",
+            "expires_at": "Open until",
+        },
+    },
     "general": {
         "subject": "{subject}",
         "intro": "",
@@ -146,11 +171,14 @@ def send_notification_email(input_data: str) -> str:
     Tool to send a notification email to one or more recipients.
     Input should be a JSON string with the following fields:
     - to (str | list[str]): Recipient email address(es)
-    - notification_type (str): One of 'task_created', 'material_created', 'general'
+    - notification_type (str): One of 'risk_alert', 'checkin_reminder', 'general', 'task_created', 'material_created'
     - data (dict): Values for the notification:
+        - risk_alert (to a manager or buddy): employee_name (required), risk_band, risk_score, snapshot_date,
+          key_factors (plain-language text), recommended_action
+        - checkin_reminder (to the employee): employee_name (required), question_text, expires_at
+        - general: subject (required), message (required)
         - task_created: task_name (required), task_status, start_date, end_date, task_group_id, estimated_amount
         - material_created: material_name (required), specification, subcategory, brand_name, typeOfMaterial
-        - general: subject (required), message (required)
     - organization_id (str, optional): The organization id the notification belongs to
     - organization_name (str, optional): Shown as a prefix in the email subject
     - user_id (str, optional): The user who triggered the notification

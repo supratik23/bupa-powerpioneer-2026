@@ -1,4 +1,0 @@
-:root { --paper: #f5f5ef; --ink: #1c2923; --muted: #78827d; --line: #dfe4dd; --line-strong: #c6d0c7; --green: #287a5c; --green-wash: #e3f0e8; --body: 'Avenir Next', 'Helvetica Neue', sans-serif; --display: 'Iowan Old Style', 'Baskerville', Georgia, serif; font-family: var(--body); color: var(--ink); background: var(--paper); font-synthesis: none; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; }
-* { box-sizing: border-box; }
-body { margin: 0; min-width: 320px; }
-button, textarea { font: inherit; }
