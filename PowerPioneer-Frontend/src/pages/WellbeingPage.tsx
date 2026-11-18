@@ -89,10 +89,6 @@ export default function WellbeingPage() {
                     <strong>{s.trend === null ? "—" : `${s.trend > 0 ? "+" : ""}${num(s.trend)}`}</strong>
                   </div>
                   <div className="pp-stat">
-                    <span>Open support actions</span>
-                    <strong>{s.open_interventions}</strong>
-                  </div>
-                  <div className="pp-stat">
                     <span>Snapshots</span>
                     <strong>{s.history.length}</strong>
                   </div>

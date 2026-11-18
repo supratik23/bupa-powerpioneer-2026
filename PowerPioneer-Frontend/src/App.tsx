@@ -9,7 +9,6 @@ import {
   CircleHelp,
   ChevronDown,
   Clock3,
-  Download,
   Heart,
   HeartPulse,
   Info,
@@ -17,7 +16,6 @@ import {
   LockKeyhole,
   Menu,
   MessageCircleHeart,
-  MessagesSquare,
   Moon,
   PhoneCall,
   RefreshCw,
@@ -33,7 +31,6 @@ import {
 import { api, errorMessage } from "./api/client";
 import type {
   Employee,
-  Intervention,
   Question,
   RiskBand,
   RiskSnapshot,
@@ -41,13 +38,12 @@ import type {
   WellbeingSummary,
 } from "./api/types";
 import { AuthProvider, useAuth } from "./auth/AuthContext";
-import { NotificationsMenu, ProfileMenu } from "./components/HeaderMenus";
+import { ProfileMenu } from "./components/HeaderMenus";
 import { Relations } from "./components/Relations";
 import { ErrorNote, Loading, SuccessNote } from "./components/ui";
 import {
   avatarColor,
   featureLabel,
-  formatDate,
   formatHours,
   formatTime,
   greeting,
@@ -66,9 +62,6 @@ import type { PageId } from "./lib/nav";
 import { useAction, useAsync } from "./lib/useAsync";
 import { useEmployees } from "./lib/useEmployees";
 import AuthPage from "./pages/AuthPage";
-import ChatPage from "./pages/ChatPage";
-import type { Conversation } from "./pages/ChatPage";
-import InterventionsPage, { InterventionActions, describeIntervention } from "./pages/InterventionsPage";
 import LeavePage from "./pages/LeavePage";
 import ProfilePage from "./pages/ProfilePage";
 import RosterPage from "./pages/RosterPage";
@@ -110,7 +103,6 @@ type TeamMember = {
   factors: string[];
   trend: number[];
   color: string;
-  openInterventions: number;
   drivers: WellbeingSummary["top_drivers"];
 };
 
@@ -195,7 +187,6 @@ function toMember(summary: WellbeingSummary, employee: Employee | undefined): Te
     factors: factors.length ? factors : [score === null ? "Not calculated yet" : "No major risk factors"],
     trend: history.length ? history : [risk],
     color: avatarColor(summary.employee_id),
-    openInterventions: summary.open_interventions,
     drivers: summary.top_drivers,
   };
 }
@@ -258,11 +249,9 @@ function RoleSwitch({
 function AppHeader({
   page,
   navigate,
-  openDirectChat,
 }: {
   page: PageId;
   navigate: (page: PageId) => void;
-  openDirectChat: (employeeId: string, name: string) => void;
 }) {
   const { isManager } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -274,16 +263,7 @@ function AppHeader({
         <RoleSwitch role={role} setRole={navigate} showTeam={isManager} />
       </div>
       <div className="header-actions">
-        <a
-          className="download-source"
-          href="/Bupa-ShiftGuard-Source.zip"
-          download="Bupa-ShiftGuard-Source.zip"
-        >
-          <Download size={16} />
-          <span>Download source</span>
-        </a>
         <ThemeToggle />
-        <NotificationsMenu navigate={navigate} openDirectChat={openDirectChat} />
         <ProfileMenu page={page} navigate={navigate} />
         <button
           className="icon-button mobile-menu"
@@ -1044,12 +1024,10 @@ function TeamMemberDrawer({
   member,
   onClose,
   onChanged,
-  openDirectChat,
 }: {
   member: TeamMember | null;
   onClose: () => void;
   onChanged: () => void;
-  openDirectChat: (employeeId: string, name: string) => void;
 }) {
   if (!member) return null;
   return (
@@ -1058,7 +1036,6 @@ function TeamMemberDrawer({
       member={member}
       onClose={onClose}
       onChanged={onChanged}
-      openDirectChat={openDirectChat}
     />
   );
 }
@@ -1067,38 +1044,15 @@ function TeamMemberDrawerBody({
   member,
   onClose,
   onChanged,
-  openDirectChat,
 }: {
   member: TeamMember;
   onClose: () => void;
   onChanged: () => void;
-  openDirectChat: (employeeId: string, name: string) => void;
 }) {
-  const { user } = useAuth();
-  const { nameOf } = useEmployees();
   const stats = useMemberStats(member.id);
   const employee = useAsync(() => api.get<Employee>(`/employees/${member.id}/`), [member.id]);
-  const interventions = useAsync(
-    () => api.list<Intervention>("/interventions/", { employee: member.id, ordering: "-triggered_at" }),
-    [member.id],
-  );
   const action = useAction();
   const [notice, setNotice] = useState<string | null>(null);
-  const open = (interventions.data ?? []).filter((iv) => iv.action_status === "PENDING" || iv.action_status === "IN_PROGRESS");
-
-  const planConversation = () =>
-    action.run(async () => {
-      await api.post<Intervention>("/interventions/", {
-        employee_id: member.id,
-        target_employee_id: user?.employee_id,
-        action_type: "SCHEDULE_CHECKIN",
-        action_status: "PENDING",
-        action_payload: { note: "Supportive conversation planned from Team view" },
-      });
-      setNotice("Supportive conversation added to your actions.");
-      await interventions.reload();
-      onChanged();
-    });
 
   const recalculate = () =>
     action.run(async () => {
@@ -1165,43 +1119,9 @@ function TeamMemberDrawerBody({
         </div>
         <ErrorNote message={action.error} />
         <SuccessNote message={notice} />
-        <button className="primary-button full" disabled={action.busy} onClick={() => void planConversation()}>
-          Plan a supportive conversation
-          <ArrowRight size={17} />
+        <button className="secondary-button full" disabled={action.busy} onClick={() => void recalculate()}>
+          <RefreshCw size={15} /> Recalculate score
         </button>
-        <div className="pp-inline-actions" style={{ marginTop: 10 }}>
-          <button className="secondary-button" onClick={() => openDirectChat(member.id, member.name)}>
-            <MessagesSquare size={15} /> Message
-          </button>
-          <button className="secondary-button" disabled={action.busy} onClick={() => void recalculate()}>
-            <RefreshCw size={15} /> Recalculate score
-          </button>
-        </div>
-
-        <div className="drawer-section" style={{ marginTop: 16 }}>
-          <span className="section-kicker">Open support actions</span>
-          <h3>Interventions ({open.length})</h3>
-          {interventions.loading ? (
-            <Loading />
-          ) : open.length === 0 ? (
-            <p className="pp-muted" style={{ marginTop: 10 }}>No open actions.</p>
-          ) : (
-            <ul className="factor-list">
-              {open.map((iv, i) => (
-                <li key={iv.intervention_id}>
-                  <span>{i + 1}</span>
-                  <div style={{ flex: 1 }}>
-                    <strong>{label(iv.action_type)} · {label(iv.action_status)}</strong>
-                    <small>{describeIntervention(iv, nameOf)} Assigned to {nameOf(iv.target_employee_id)} · {formatDate(iv.triggered_at)}</small>
-                    <div style={{ marginTop: 6 }}>
-                      <InterventionActions iv={iv} onChanged={() => void interventions.reload()} />
-                    </div>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
 
         {employee.data && (
           <div style={{ marginTop: 16 }}>
@@ -1213,13 +1133,7 @@ function TeamMemberDrawerBody({
   );
 }
 
-function ManagerView({
-  recentUpdate,
-  openDirectChat,
-}: {
-  recentUpdate: boolean;
-  openDirectChat: (employeeId: string, name: string) => void;
-}) {
+function ManagerView({ recentUpdate }: { recentUpdate: boolean }) {
   const { user } = useAuth();
   const { byId } = useEmployees();
   const team = useAsync(() => api.get<WellbeingSummary[]>("/wellbeing/team/"), []);
@@ -1272,8 +1186,6 @@ function ManagerView({
       highRising: teamMembers.filter((m) => m.level === "Needs attention" && m.delta > 0).length,
       watchRising: teamMembers.filter((m) => m.level === "Keep an eye" && m.delta > 0).length,
       improving: teamMembers.filter((m) => m.delta < 0).length,
-      openActions: teamMembers.reduce((sum, m) => sum + m.openInterventions, 0),
-      peopleWithActions: teamMembers.filter((m) => m.openInterventions > 0).length,
     }),
     [teamMembers],
   );
@@ -1347,15 +1259,6 @@ function ManagerView({
           ) : (
             <span className="summary-change neutral">No change</span>
           )}
-        </article>
-        <article className="summary-card blue">
-          <div className="summary-icon"><MessageCircleHeart size={20} /></div>
-          <div><span>Open support actions</span><strong>{counts.openActions}</strong><small>Pending or in-progress interventions</small></div>
-          <span className="summary-change neutral">
-            {counts.peopleWithActions === 0
-              ? "None open"
-              : `For ${counts.peopleWithActions} ${counts.peopleWithActions === 1 ? "person" : "people"}`}
-          </span>
         </article>
       </section>
 
@@ -1476,7 +1379,6 @@ function ManagerView({
         member={selected}
         onClose={() => setSelectedId(null)}
         onChanged={() => void team.reload()}
-        openDirectChat={openDirectChat}
       />
     </main>
   );
@@ -1489,15 +1391,6 @@ function Shell() {
   const { user, loading, isManager, isStaff } = useAuth();
   const { page, navigate } = usePage();
   const [recentUpdate, setRecentUpdate] = useState(false);
-  const [chatTarget, setChatTarget] = useState<Conversation | null>(null);
-
-  const openDirectChat = useCallback(
-    (employeeId: string, name: string) => {
-      setChatTarget({ kind: "direct", id: employeeId, title: name });
-      navigate("chat");
-    },
-    [navigate],
-  );
 
   if (loading) {
     return (
@@ -1517,16 +1410,14 @@ function Shell() {
 
   return (
     <div className="app">
-      <AppHeader page={current} navigate={navigate} openDirectChat={openDirectChat} />
+      <AppHeader page={current} navigate={navigate} />
       {current === "employee" && <EmployeeView onCheckIn={() => setRecentUpdate(true)} navigate={navigate} />}
-      {current === "manager" && <ManagerView recentUpdate={recentUpdate} openDirectChat={openDirectChat} />}
+      {current === "manager" && <ManagerView recentUpdate={recentUpdate} />}
       {current === "profile" && <ProfilePage />}
       {current === "wellbeing" && <WellbeingPage />}
       {current === "roster" && <RosterPage key="roster" />}
       {current === "team-roster" && <RosterPage key="team-roster" initialTab="shifts" />}
       {current === "leave" && <LeavePage />}
-      {current === "interventions" && <InterventionsPage />}
-      {current === "chat" && <ChatPage key={chatTarget ? `${chatTarget.kind}-${chatTarget.id}` : "chat"} initial={chatTarget} />}
       {current === "admin" && <AdminPage />}
     </div>
   );
