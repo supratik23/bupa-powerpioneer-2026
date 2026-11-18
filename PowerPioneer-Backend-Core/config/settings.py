@@ -7,7 +7,13 @@ import os
 from datetime import timedelta
 from pathlib import Path
 
+from django.core.exceptions import ImproperlyConfigured
+from dotenv import load_dotenv
+
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Secrets live in a local .env file next to manage.py (git-ignored). See .env.example.
+load_dotenv(BASE_DIR / ".env")
 
 SECRET_KEY = os.environ.get(
     "DJANGO_SECRET_KEY",
@@ -74,12 +80,23 @@ WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
 
 # ---------------------------------------------------------------------------
-# Database: local SQLite
+# Database: Supabase Postgres (session pooler, port 5432)
+# Only SUPABASE_DB_PASSWORD is required in .env; the rest default to the team project.
 # ---------------------------------------------------------------------------
+if not os.environ.get("SUPABASE_DB_PASSWORD"):
+    raise ImproperlyConfigured(
+        "SUPABASE_DB_PASSWORD is not set. Create a .env file next to manage.py "
+        "(copy .env.example) and put the Supabase database password in it."
+    )
+
 DATABASES = {
     "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": os.environ.get("SUPABASE_DB_NAME", "postgres"),
+        "USER": os.environ.get("SUPABASE_DB_USER", "postgres.lzxnflyjcjchytjxzobz"),
+        "PASSWORD": os.environ["SUPABASE_DB_PASSWORD"],
+        "HOST": os.environ.get("SUPABASE_DB_HOST", "aws-1-ap-south-1.pooler.supabase.com"),
+        "PORT": os.environ.get("SUPABASE_DB_PORT", "5432"),
     }
 }
 
