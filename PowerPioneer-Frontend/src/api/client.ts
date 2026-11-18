@@ -5,7 +5,7 @@
  * - Adds the JWT access token, refreshes it once on 401, and retries the request.
  * - Normalises DRF error bodies into a readable message (ApiError.message).
  */
-import { apiUrl } from "./config";
+import { AGENT_BASE_URL, apiUrl } from "./config";
 import type { Paginated } from "./types";
 
 const ACCESS_KEY = "pp.access";
@@ -165,6 +165,8 @@ export interface RequestOptions {
   query?: Query;
   /** Skip the Authorization header (login, register, refresh). */
   anonymous?: boolean;
+  /** Absolute base URL for a service other than the Django API (e.g. the AI agent). */
+  baseUrl?: string;
 }
 
 function withQuery(path: string, query?: Query): string {
@@ -182,7 +184,10 @@ async function send(path: string, options: RequestOptions): Promise<Response> {
   const headers: Record<string, string> = { Accept: "application/json" };
   if (options.body !== undefined) headers["Content-Type"] = "application/json";
   if (!options.anonymous && accessToken) headers.Authorization = `Bearer ${accessToken}`;
-  return fetch(apiUrl(withQuery(path, options.query)), {
+  const url = options.baseUrl
+    ? `${options.baseUrl}${path.startsWith("/") ? path : `/${path}`}`
+    : apiUrl(path);
+  return fetch(withQuery(url, options.query), {
     method: options.method ?? "GET",
     headers,
     body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
@@ -214,6 +219,16 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   if (!res.ok) throw new ApiError(res.status, data, `Request failed (${res.status})`);
   return data as T;
 }
+
+/**
+ * Calls to the ShiftGuard AI agent. Same JWT as the Django API (the agent verifies it with /auth/me/),
+ * including the refresh-on-401 retry.
+ */
+export const agentApi = {
+  get: <T>(path: string, query?: Query) => request<T>(path, { query, baseUrl: AGENT_BASE_URL }),
+  post: <T>(path: string, body?: unknown) =>
+    request<T>(path, { method: "POST", body: body ?? {}, baseUrl: AGENT_BASE_URL }),
+};
 
 /** Accepts either a paginated DRF response or a plain array. */
 export function unwrap<T>(data: Paginated<T> | T[]): T[] {

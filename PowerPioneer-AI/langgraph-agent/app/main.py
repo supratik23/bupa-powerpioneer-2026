@@ -7,6 +7,8 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from .mcp_client.agent import agent_router
+from .api.checkin import checkin_router   # also puts app/ on sys.path for the shared `services.*` imports
+from .api.nudges import nudge_router
 from .mcp_client.serverconfig import multi_server_mcp_client
 from .prompts.prompt_file import system_message_for_tooling_agent, system_message_for_generic_agent
 from langchain.agents import create_agent
@@ -54,6 +56,11 @@ async def lifespan(app: FastAPI):
         # Build the Gemini agent graph at startup so configuration errors surface immediately
         await get_agent_graph()
 
+        # Load the XGBoost risk model in the main thread (used by /checkin/answer). A first-time numpy import
+        # inside a worker thread deadlocks on Windows, so it must not happen lazily in a request.
+        from services.risk_model_service import get_risk_model
+        get_risk_model()
+
         logger.info("application_starting")
 
         yield
@@ -83,6 +90,8 @@ app.add_middleware(
 
 api_router = APIRouter()
 app.include_router(agent_router, prefix="/agent", tags=["agent"])
+app.include_router(checkin_router, prefix="/checkin", tags=["checkin"])
+app.include_router(nudge_router, prefix="/nudges", tags=["nudges"])
 
 @app.get("/health")
 async def health_check():

@@ -36,6 +36,18 @@ export function apiUrl(path: string): string {
   return `${API_BASE_URL}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
+/**
+ * ShiftGuard AI agent (PowerPioneer-AI/langgraph-agent, FastAPI on port 8001).
+ * Serves the check-in question after an appointment is completed and scores the answer.
+ * Override with VITE_AGENT_BASE_URL.
+ */
+export const AGENT_BASE_URL: string = trimSlash(
+  import.meta.env.VITE_AGENT_BASE_URL || "http://127.0.0.1:8001",
+);
+
+/** How often the app asks the agent for a supportive nudge (ms). Override with VITE_NUDGE_INTERVAL_MS. */
+export const NUDGE_INTERVAL_MS: number = Number(import.meta.env.VITE_NUDGE_INTERVAL_MS) || 60_000;
+
 /** Join a partial WebSocket path (e.g. "/ws/notifications/") onto the WS base URL. */
 export function wsUrl(path: string): string {
   return `${WS_BASE_URL}${path.startsWith("/") ? path : `/${path}`}`;

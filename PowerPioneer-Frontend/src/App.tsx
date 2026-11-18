@@ -28,8 +28,10 @@ import {
   UsersRound,
   X,
 } from "lucide-react";
-import { api, errorMessage } from "./api/client";
+import { agentApi, api, ApiError, errorMessage } from "./api/client";
 import type {
+  AgentCheckinAnswerResponse,
+  AgentCheckinQuestionResponse,
   Appointment,
   Employee,
   Question,
@@ -57,6 +59,8 @@ import {
 import { withSupabaseRows } from "./lib/wellbeingData";
 import { RosterTimelineDrawer } from "./components/DayTimeline";
 import { DayPlan } from "./components/DayPlan";
+import { SupportNudgePopup } from "./components/SupportNudge";
+import { useSupportNudges } from "./lib/useSupportNudges";
 import { ReturnToWorkTeam } from "./components/ReturnToWork";
 import { isCompleted, shiftDay } from "./lib/appointments";
 import { DAYPART_META, ThemeToggle } from "./components/ThemeToggle";
@@ -133,6 +137,7 @@ const TRIGGER_CATEGORY: Record<string, string> = {
   MATERNITY_RETURN: "Return to work",
   POST_SHIFT: "After your shift",
   ADHOC: "Quick check-in",
+  ROSTER_EVENT: "After your task",
 };
 
 const MOOD_EMOJI = ["😣", "😟", "😐", "🙂", "😊"];
@@ -696,21 +701,49 @@ function EmployeeView({
     setPanelOpen(true);
   };
 
+  // The AI agent saves the answer, recalculates the wellbeing score (mean of the last 7 days), runs the
+  // XGBoost risk model, stores the prediction and triggers manager/buddy follow-up.
+  // (Replaces the Django answer + rule-based /wellbeing/calculate/ calls, which overwrote the model's snapshot.)
   const submitAnswer = async (nudge: Nudge, optionId: string) => {
     setCheckInError(null);
     try {
-      await api.post(`/questions/${nudge.id}/answer/`, { option_id: optionId });
+      try {
+        await agentApi.post<AgentCheckinAnswerResponse>("/checkin/answer", {
+          question_id: nudge.id,
+          option_id: optionId,
+        });
+      } catch (err) {
+        // Agent unreachable or failing: still save the answer in Django so it is not lost;
+        // it is included in the next risk calculation.
+        if (err instanceof ApiError && err.status < 500) throw err;
+        await api.post(`/questions/${nudge.id}/answer/`, { option_id: optionId });
+      }
       const question = pending.data?.find((q) => q.question_id === nudge.id);
       if (question) setAnswered((prev) => [...prev, question]);
-      // Refresh the wellbeing score so the new answer feeds the team signal.
-      api
-        .post("/wellbeing/calculate/", { employee_id: meId })
-        .then(onCheckIn)
-        .catch(() => undefined);
+      onCheckIn();
       return true;
     } catch (err) {
       setCheckInError(errorMessage(err));
       return false;
+    }
+  };
+
+  // After an appointment is completed: ask the agent for the check-in question and open it.
+  // The agent also prepares the next question in the background.
+  const showCheckInAfterAppointment = async (appointmentId: string) => {
+    try {
+      const res = await agentApi.post<AgentCheckinQuestionResponse>("/checkin/appointment-completed", {
+        appointment_id: appointmentId,
+      });
+      const question = res.question;
+      if (!question || question.options.length === 0) return;
+      pending.setData((list) => [question, ...(list ?? []).filter((q) => q.question_id !== question.question_id)]);
+      setDemoIndex(null);
+      setSelectedId(question.question_id);
+      setPanelOpen(true);
+    } catch (err) {
+      // The appointment itself is saved; only the check-in prompt is skipped.
+      setCheckInError(`Check-in unavailable: ${errorMessage(err)}`);
     }
   };
 
@@ -769,6 +802,7 @@ function EmployeeView({
     try {
       const updated = await api.post<Appointment>(`/appointments/${a.appointment_id}/${completing ? "complete" : "reopen"}/`);
       setStatus(updated.status);
+      if (completing && updated.status === "COMPLETED") void showCheckInAfterAppointment(a.appointment_id);
     } catch (err) {
       setStatus(a.status);
       setAppointmentError(errorMessage(err));
@@ -1551,6 +1585,8 @@ function Shell() {
   const { user, loading, isManager, isStaff } = useAuth();
   const { page, navigate } = usePage();
   const [recentUpdate, setRecentUpdate] = useState(false);
+  // Supportive nudges: timer runs for the whole signed-in session (restarts on reload), on every page.
+  const supportNudges = useSupportNudges(!!user);
 
   if (loading) {
     return (
@@ -1579,6 +1615,7 @@ function Shell() {
       {current === "team-roster" && <RosterPage key="team-roster" initialTab="shifts" />}
       {current === "leave" && <LeavePage />}
       {current === "admin" && <AdminPage />}
+      <SupportNudgePopup nudge={supportNudges.nudge} onClose={supportNudges.dismiss} />
     </div>
   );
 }

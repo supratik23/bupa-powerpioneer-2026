@@ -165,7 +165,7 @@ export interface Attendance {
 export const QUESTION_SOURCES = ["MANUAL", "AI_GENERATED", "GEMINI", "SYSTEM"] as const;
 export type QuestionSource = (typeof QUESTION_SOURCES)[number];
 export const TRIGGER_TYPES = [
-  "SCHEDULED", "RISK_TRIGGERED", "ONBOARDING", "MATERNITY_RETURN", "POST_SHIFT", "ADHOC",
+  "SCHEDULED", "RISK_TRIGGERED", "ONBOARDING", "MATERNITY_RETURN", "POST_SHIFT", "ADHOC", "ROSTER_EVENT",
 ] as const;
 export type TriggerType = (typeof TRIGGER_TYPES)[number];
 
@@ -190,6 +190,48 @@ export interface Question {
   is_open: boolean;
   options: NestedOption[];
   created_at: string;
+}
+
+/** POST {agent}/checkin/appointment-completed */
+export interface AgentCheckinQuestionResponse {
+  appointment_id: UUID;
+  /** null when the appointment belongs to someone else (e.g. a manager completed it). */
+  question: Question | null;
+  served_from?: "open" | "queued" | "template";
+  next_question?: "generating" | "already_queued";
+  reason?: string;
+}
+
+/** GET {agent}/nudges/next - supportive on-screen nudge; the choice is not sent back. */
+export interface SupportNudge {
+  nudge_id: string;
+  category: string;
+  emoji: string;
+  title: string;
+  message: string;
+  options: { id: "acknowledge" | "skip"; label: string }[];
+  generated_by: "gemini" | "template";
+}
+
+/** POST {agent}/checkin/answer */
+export interface AgentCheckinAnswerResponse {
+  response_id: UUID;
+  responded_at: string;
+  question_id: UUID;
+  option_id: UUID;
+  /** Mean answer score (1-4) over the last 7 days. */
+  wellbeing_score_7d: number | null;
+  risk: {
+    snapshot_date: string;
+    risk_band: RiskBand;
+    risk_score: number;
+    risk_probability: number;
+    prediction_id: UUID;
+    model_version: string;
+    top_factors: { feature: string; value: number | null; shap_value: number; direction: string }[];
+  } | null;
+  risk_skipped_reason: string | null;
+  actions: { intervention_id: UUID; action_type: string; action_status: string; target_role: string }[];
 }
 
 export interface QuestionOption {

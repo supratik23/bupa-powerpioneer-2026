@@ -131,7 +131,8 @@ class SupabaseDBConnectionManager:
         if not colon:
             return db_url
         escaped = quote(unquote(password), safe="")
-        if escaped != password:
+        if escaped != password and not getattr(SupabaseDBConnectionManager, "_escape_warned", False):
+            SupabaseDBConnectionManager._escape_warned = True   # log once per process
             logger.warning("SUPABASE_DB_URL password contains reserved characters; percent-encoding it.")
         return f"{scheme}://{user}:{escaped}@{hostpart}"
 

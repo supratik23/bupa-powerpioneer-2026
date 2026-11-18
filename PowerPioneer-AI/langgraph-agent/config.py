@@ -63,8 +63,14 @@ class Settings(BaseSettings):
 
     # ShiftGuard risk model (used by the risk MCP tools)
     RISK_MODEL_ARTIFACT_DIR: str | None = None   # None -> PowerPioneer-AI/model_artifacts
-    INTERVENTION_DEDUP_DAYS: int = 7             # skip a duplicate intervention of the same type within N days
+    # Skip a duplicate intervention of the same type within N days. 0 = OFF: every answer triggers its actions
+    # and emails (demo setting). Set INTERVENTION_DEDUP_DAYS=7 in .env after the demo to avoid repeat alerts.
+    INTERVENTION_DEDUP_DAYS: int = 0
     CHECKIN_QUESTION_EXPIRY_HOURS: int = 24      # default lifetime of an agent-generated check-in question
+
+    # Check-in APIs (/checkin/*) called by PowerPioneer-Frontend
+    BACKEND_API_BASE_URL: str = "http://127.0.0.1:8000/api"   # Django API, used to verify the caller's login token
+    AGENT_REQUIRE_AUTH: bool = True   # False lets Swagger/curl pass employee_id without a token (local testing only)
 
 
     class Config:

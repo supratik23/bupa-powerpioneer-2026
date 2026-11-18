@@ -4,6 +4,75 @@ The ShiftGuard agent is a FastAPI + LangGraph service that answers questions abo
 
 The tools follow [ShiftGuard Risk Model: Input Specification](https://claude.ai/artifact/PKWDVNJ3nvDqFmRrYZB2oz).
 
+## Main flow: check-in after a completed appointment
+
+This is the flow the ShiftGuard app uses. It doesn't go through the chat agent: two dedicated endpoints run fixed steps in code, and Gemini only writes the next question, in the background.
+
+```
+Employee ticks an appointment done
+  Frontend ──POST /api/appointments/{id}/complete/──> Django      (status = COMPLETED)
+  Frontend ──POST :8001/checkin/appointment-completed──> agent
+              ├─ returns the question + 4 options now ──> check-in panel opens
+              └─ background: Gemini writes the NEXT question, saved hidden (QUEUED)
+Employee taps an answer
+  Frontend ──POST :8001/checkin/answer──> agent
+              1. employee_response row
+              2. wellbeing_score = mean answer score (1-4), last 7 days
+              3. 26 features → XGBoost → snapshot, prediction, explanations
+              4. follow-up by band → intervention rows; emails sent in the background
+```
+
+**`POST /checkin/appointment-completed`** with `{"appointment_id": "<uuid>"}` returns the question in the same shape as Django's `/api/questions/`.
+
+The question is chosen in this order:
+
+1. The employee's open, unanswered question (`served_from: "open"`). So five completions in a row show the same question rather than five new ones.
+2. Otherwise, the QUEUED question, which is activated now and expires after 24 hours (`"queued"`).
+3. Otherwise, the first time only, a question from the built-in template bank (`"template"`).
+
+When nothing is queued yet, the next question is generated in the background. If every Gemini model is unavailable, a template question is queued instead. Queued questions are saved with `is_active = false` and `context_data.queue_status = 'QUEUED'`, so they stay out of `/api/questions/pending/` until they are served. Every question has exactly 4 options, scored 1–4 from worst to best.
+
+The endpoint returns 409 if the appointment isn't COMPLETED, and returns `question: null` if the appointment belongs to someone else, for example when a manager ticked it.
+
+**`POST /checkin/answer`** with `{"question_id": "<uuid>", "option_id": "<uuid>"}` returns `wellbeing_score_7d`, `risk` (band, score, prediction_id, top factors) and `actions`.
+
+| Error | When |
+| --- | --- |
+| 409 | The question was already answered, or hasn't been served yet |
+| 403 | The question belongs to someone else |
+| 400 | The option doesn't belong to the question |
+
+Employees with no shifts in the last 30 days get `risk: null`, with a reason in `risk_skipped_reason`.
+
+**Follow-up by risk band.** An action is skipped if the same one was recorded for the employee in the last 7 days, unless that earlier one failed or was cancelled.
+
+| Band | Actions (`intervention.action_type`) | Email |
+| --- | --- | --- |
+| CRITICAL | `EMAIL_MANAGER`, `EMAIL_BUDDY`, `SCHEDULE_CHECKIN` (manager, within 48 h) | Manager: band, score, drivers, "1:1 within 48 hours". Buddy: a friendly nudge with no scores. |
+| HIGH | `EMAIL_MANAGER` | Manager: "check-in this week" |
+| MEDIUM | `EMAIL_BUDDY`; if there is no buddy, recorded as `SKIPPED` | Buddy nudge |
+| LOW | none | – |
+
+Email interventions start as `PENDING` and become `COMPLETED`, or `FAILED` with the SMTP error. Check-in answers are never included in any email. The policy is the `ESCALATION_POLICY` dict in `app/services/escalation_service.py`.
+
+**Auth.** The frontend sends its Django access token (`Authorization: Bearer …`). The agent checks it with Django `GET /api/auth/me/`, so the backend must be running, and it acts only for that employee. For local Swagger or curl tests, set `AGENT_REQUIRE_AUTH=false` in `.env` and pass `employee_id` in the body instead.
+
+**Frontend wiring** (`PowerPioneer-Frontend`):
+
+- Set the agent URL with `VITE_AGENT_BASE_URL`; the default is `http://127.0.0.1:8001`.
+- `App.tsx` calls `/checkin/appointment-completed` after a successful "mark complete", then opens the check-in panel with the returned question.
+- Answers go to `/checkin/answer`. If the agent is unreachable, the answer is saved through Django instead, so it isn't lost, and the next scoring run picks it up.
+- The frontend no longer calls Django's rule-based `/wellbeing/calculate/`.
+
+## Supportive nudges (popup every minute)
+
+Supportive nudges are small prompts such as "Time for some water" or "Stretch your legs", with two buttons (an acknowledge button whose label Gemini writes, and Skip). The choice is handled only in the browser: nothing is sent back or stored, and no action is triggered.
+
+- **Agent: `GET /nudges/next`**, with the same login token as the check-in endpoints. It returns `{nudge_id, category, emoji, title, message, options: [{id: "acknowledge", label}, {id: "skip", label: "Skip"}], generated_by}`.
+- **No Gemini call per request.** Each employee has an in-memory pool of 8 Gemini-written nudges. When fewer than 3 remain, one background Gemini call refills it, using the employee's role and current shift (e.g. "6 h into a day shift, 2.5 h left") and avoiding recent repeats. The first call, or any call made while Gemini is down, gets a built-in nudge. Requests take a few milliseconds. The pool is lost on restart, which is harmless.
+- **Login cache.** Verified tokens are cached for 2 minutes, so per-minute polling doesn't call Django `/auth/me/` every time.
+- **Frontend.** `src/lib/useSupportNudges.ts` starts a timer when the user signs in, and again after a reload. It runs on every page and calls the agent every `VITE_NUDGE_INTERVAL_MS` (default 60000 ms). A tick is skipped while the tab is hidden, while a nudge is still showing, or while a check-in question is open, so popups never stack. `src/components/SupportNudge.tsx` renders the popup in the same style as the check-in panel.
+
 ## How it fits with the other services
 
 ```
