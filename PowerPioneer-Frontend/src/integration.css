@@ -494,6 +494,18 @@
   font-size: 20px;
 }
 
+.pp-stat strong small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.pp-stat > small {
+  display: block;
+  margin-top: 3px;
+  font-size: 10px;
+}
+
 .pp-two-col {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -878,6 +890,17 @@
   filter: drop-shadow(0 4px 10px rgba(16, 34, 71, 0.18));
 }
 
+/* 30/90-day ranges: small solid dots, no emoji */
+.mood-point.compact .mood-dot {
+  fill: var(--blue);
+  stroke: var(--surface, #fff);
+  stroke-width: 1.5;
+}
+
+.mood-point.compact.active .mood-dot {
+  stroke-width: 2.5;
+}
+
 .mood-emoji {
   font-size: 24px;
   pointer-events: none;
@@ -1194,6 +1217,9 @@ html[data-daypart="evening"] .rc {
 .rc-chip.late, .rc-dot.late { color: var(--rc-late); background-color: color-mix(in srgb, var(--rc-late) 12%, transparent); }
 .rc-chip.absent, .rc-dot.absent { color: var(--rc-absent); background-color: color-mix(in srgb, var(--rc-absent) 12%, transparent); }
 .rc-chip.leave, .rc-dot.leave { color: var(--rc-leave); background-color: color-mix(in srgb, var(--rc-leave) 12%, transparent); }
+/* NOT_SCHEDULED attendance rows (Supabase pipeline): muted, follows the text colour in both themes */
+.rc-chip.unscheduled, .rc-dot.unscheduled { color: color-mix(in srgb, currentColor 55%, transparent); background-color: color-mix(in srgb, currentColor 8%, transparent); }
+.rc-dot.unscheduled { background-color: color-mix(in srgb, currentColor 35%, transparent); }
 
 /* legend swatches are solid */
 .rc-dot.day { background-color: var(--rc-day); }
@@ -1444,4 +1470,594 @@ html[data-daypart="evening"] .rc {
   border-left-width: 2px;
   font-size: 10px;
   text-align: center;
+}
+
+/* ---------------------------------------------------------------------------
+   Maternity return-to-work (components/ReturnToWork.tsx)
+   --------------------------------------------------------------------------- */
+.rtw-card {
+  margin: 0 0 18px;
+  padding: 24px 26px 18px;
+  background: linear-gradient(135deg, rgba(246, 241, 255, 0.95), rgba(255, 255, 255, 0.96) 55%, rgba(236, 250, 246, 0.9));
+  border-color: #e5dcfa;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.rtw-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.rtw-head > div:nth-child(2) {
+  flex: 1;
+  min-width: 0;
+}
+
+.rtw-head h2 {
+  margin: 4px 0 0;
+  color: var(--navy);
+  font-size: 21px;
+  letter-spacing: -0.5px;
+}
+
+.rtw-icon {
+  width: 48px;
+  height: 48px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: #6b45d9;
+  background: #efe8ff;
+  border-radius: 14px;
+}
+
+.rtw-week {
+  flex: none;
+  padding: 5px 11px;
+  color: #6b45d9;
+  background: #efe8ff;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.rtw-intro {
+  margin: 0;
+  color: #4f5f78;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.rtw-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  color: #5b4a8a;
+  background: #f4efff;
+  border: 1px solid #e3d8fb;
+  border-radius: 12px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.rtw-note svg {
+  flex: none;
+  margin-top: 2px;
+  color: #6b45d9;
+}
+
+.rtw-progress {
+  height: 7px;
+  border-radius: 7px;
+  background: #e8ebf2;
+  overflow: hidden;
+}
+
+.rtw-progress b {
+  display: block;
+  height: 100%;
+  border-radius: 7px;
+  background: linear-gradient(90deg, #6b45d9, #2f7be0);
+}
+
+.rtw-progress-label {
+  margin-top: -6px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.rtw-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+}
+
+.rtw-stats > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  background: rgba(244, 246, 251, 0.9);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.rtw-stats span,
+.rtw-member-stats span,
+.rtw-label {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.rtw-stats strong {
+  color: var(--navy);
+  font-size: 15px;
+}
+
+.rtw-stats small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.rtw-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.rtw-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.rtw-chip.on { color: #0f7a66; background: #e5f6f0; }
+.rtw-chip.unknown { color: #5d6b82; background: #eef1f6; }
+.rtw-chip.off { color: #a8620b; background: #fff1dc; }
+.rtw-chip small { font-weight: 500; }
+
+.rtw-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+/* Team view section */
+.rtw-team {
+  margin: 0 0 20px;
+  padding: 24px 26px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.rtw-sub {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.rtw-auth {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  color: #6b45d9;
+  background: #f1ebff;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.rtw-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 14px;
+}
+
+.rtw-member {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 18px;
+  background: linear-gradient(135deg, rgba(246, 241, 255, 0.9), rgba(255, 255, 255, 0.95));
+  border: 1px solid #e5dcfa;
+  border-radius: 14px;
+}
+
+.rtw-member.attention {
+  border-color: #f3d39b;
+}
+
+.rtw-member-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.rtw-member-head > div {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.rtw-member-head strong {
+  color: var(--navy);
+  font-size: 14px;
+}
+
+.rtw-member-head small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.rtw-avatar {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: #ffffff;
+  border-radius: 50%;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.rtw-member-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.rtw-member-stats > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.rtw-member-stats strong {
+  color: #263957;
+  font-size: 12px;
+}
+
+@media (max-width: 640px) {
+  .rtw-card,
+  .rtw-team {
+    padding: 20px 16px 14px;
+  }
+
+  .rtw-head {
+    flex-wrap: wrap;
+  }
+
+  .rtw-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .rtw-member-stats {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .surface-heading:has(.rtw-auth) {
+    flex-wrap: wrap;
+  }
+}
+
+/* Logo acts as a "home" link back to My shift */
+.brand-home {
+  padding: 4px 8px 4px 4px;
+  margin: -4px 0 -4px -4px;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.brand-home:hover .pulse-mark {
+  filter: brightness(1.08);
+}
+
+.brand-home:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+/* ---------------------------------------------------------------------------
+   My wellbeing: plain-language overview (components/WellbeingAtAGlance.tsx)
+   --------------------------------------------------------------------------- */
+.wag {
+  --wag-great: #13977d;
+  --wag-good: #4fb48f;
+  --wag-okay: #e0a32b;
+  --wag-low: #e07a3b;
+  --wag-verylow: #c2414f;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.wag-headline {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.wag-emoji {
+  font-size: 40px;
+  line-height: 1;
+}
+
+.wag-headline strong {
+  display: block;
+  color: var(--navy);
+  font-family: "Manrope", sans-serif;
+  font-size: 22px;
+  letter-spacing: -0.4px;
+}
+
+.wag-headline small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* five-level scale with a marker */
+.wag-scale-track {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 3px;
+  height: 10px;
+}
+
+.wag-seg {
+  border-radius: 5px;
+  opacity: 0.28;
+}
+
+.wag-seg.on { opacity: 1; }
+.wag-seg.great { background: var(--wag-great); }
+.wag-seg.good { background: var(--wag-good); }
+.wag-seg.okay { background: var(--wag-okay); }
+.wag-seg.low { background: var(--wag-low); }
+.wag-seg.verylow { background: var(--wag-verylow); }
+
+.wag-marker {
+  position: absolute;
+  top: -5px;
+  width: 4px;
+  height: 20px;
+  margin-left: -2px;
+  border-radius: 3px;
+  background: var(--navy);
+  box-shadow: 0 0 0 2px #ffffff;
+}
+
+.wag-scale-labels {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  margin-top: 7px;
+  color: var(--muted);
+  font-size: 10px;
+  text-align: center;
+}
+
+.wag-scale-labels .on {
+  color: var(--navy);
+  font-weight: 700;
+}
+
+/* trend + sparkline */
+.wag-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.wag-trend {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+
+.wag-trend > svg {
+  flex: none;
+  margin-top: 1px;
+}
+
+.wag-trend.up > svg { color: var(--wag-great); }
+.wag-trend.down > svg { color: var(--wag-low); }
+.wag-trend.flat > svg { color: var(--muted); }
+
+.wag-trend strong {
+  display: block;
+  color: #263957;
+  font-size: 14px;
+}
+
+.wag-trend small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.wag-sparkbox {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+}
+
+.wag-sparkbox small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.wag-spark {
+  width: 160px;
+  height: 40px;
+}
+
+.wag-spark polyline {
+  fill: none;
+  stroke: var(--blue);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.wag-spark circle { fill: var(--blue); }
+
+.wag-spark-ref {
+  stroke: var(--line);
+  stroke-dasharray: 3 3;
+  vector-effect: non-scaling-stroke;
+}
+
+/* risk band explanation */
+.wag-band {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border-left: 4px solid currentColor;
+  font-size: 12px;
+}
+
+.wag-band strong { font-size: 13px; }
+.wag-band span { color: #4f5f78; }
+.wag-band.good { color: #0f7a66; background: #e8f7f2; }
+.wag-band.okay { color: #a8620b; background: #fff5e3; }
+.wag-band.low { color: #b4531f; background: #fdeee4; }
+.wag-band.verylow { color: #b42d45; background: #fde9ec; }
+
+/* drivers */
+.wag-drivers {
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.wag-driver-cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.wag-driver-list > strong {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+
+.wag-driver-list.against > strong { color: #b4531f; }
+.wag-driver-list.helping > strong { color: #0f7a66; }
+
+.wag-driver-list ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.wag-driver-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #f7f9fc;
+  font-size: 12px;
+}
+
+.wag-driver-list li span { color: #263957; font-weight: 600; }
+.wag-driver-list li small { color: var(--muted); white-space: nowrap; }
+
+/* work pattern tiles */
+.wag-pattern-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 12px;
+}
+
+.wag-pattern-summary.ok { color: #0f7a66; background: #e8f7f2; }
+.wag-pattern-summary.warn { color: #a8620b; background: #fff5e3; }
+
+.pp-stat.warn {
+  background: #fff5e3;
+  box-shadow: inset 3px 0 0 #e0a32b;
+}
+
+.pp-stat.warn strong { color: #a8620b; }
+
+/* Calendar cell details docked on the right (components/RosterCalendar.tsx).
+   Non-modal: no backdrop, and below the edit/add side panels (backdrop z 60). */
+.rc-side {
+  z-index: 58;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.rc-side .drawer-top h2 {
+  margin-bottom: 2px;
+}
+
+.rc-side-count {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.rc-side-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.rc-side .rc-detail-item {
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #f7f9fc;
+}
+
+/* details text on its own row; type pill and actions underneath */
+.rc-side .rc-detail-item > div:first-child {
+  flex: 1 1 100%;
+}
+
+.rc-side .rc-detail-item .pp-inline-actions {
+  margin-left: auto;
 }

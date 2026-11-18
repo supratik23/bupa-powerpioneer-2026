@@ -231,15 +231,26 @@ export const api = {
   /** GET a list endpoint and return the items (first page only). */
   list: async <T>(path: string, query?: Query) => unwrap(await request<Paginated<T> | T[]>(path, { query })),
 
-  /** GET every page of a paginated list endpoint. */
-  listAll: async <T>(path: string, query?: Query, maxPages = 40): Promise<T[]> => {
-    const items: T[] = [];
-    for (let page = 1; page <= maxPages; page += 1) {
-      const data = await request<Paginated<T> | T[]>(path, { query: { ...query, page } });
-      if (Array.isArray(data)) return data;
-      items.push(...data.results);
-      if (!data.next) break;
-    }
-    return items;
+  /**
+   * GET every page of a paginated list endpoint. Page 1 gives the total count;
+   * the remaining pages are then fetched in parallel (a few at a time).
+   */
+  listAll: async <T>(path: string, query?: Query, maxPages = 80): Promise<T[]> => {
+    const first = await request<Paginated<T> | T[]>(path, { query: { ...query, page: 1 } });
+    if (Array.isArray(first)) return first;
+    if (!first.next || first.results.length === 0) return first.results;
+    const pages = Math.min(maxPages, Math.ceil(first.count / first.results.length));
+    const rest: T[][] = new Array(Math.max(0, pages - 1));
+    const CONCURRENCY = 6;
+    let nextPage = 2;
+    const worker = async () => {
+      while (nextPage <= pages) {
+        const page = nextPage++;
+        const data = await request<Paginated<T>>(path, { query: { ...query, page } });
+        rest[page - 2] = data.results;
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, pages - 1) }, worker));
+    return first.results.concat(...rest);
   },
 };

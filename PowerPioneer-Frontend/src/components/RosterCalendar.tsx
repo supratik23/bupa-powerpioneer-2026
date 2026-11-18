@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, X } from "lucide-react";
 
 /** One chip on the calendar. `row` is the underlying record, handed back to renderDetail. */
 export interface CalendarItem<T> {
@@ -37,6 +37,61 @@ export function monthGrid(month: Date): { start: Date; end: Date } {
   const end = new Date(last);
   end.setDate(last.getDate() + (6 - ((last.getDay() + 6) % 7)));
   return { start, end };
+}
+
+/**
+ * Details for the selected calendar cell, shown in a panel docked on the right.
+ * Non-modal (no backdrop) so another cell can be clicked to switch; Esc or × closes it.
+ * Sits below the app's edit/add side panels (z-index), which open on top of it.
+ */
+function DayDetailPanel<T>({
+  kicker,
+  title,
+  items,
+  renderDetail,
+  emptyText,
+  onClose,
+}: {
+  kicker: string;
+  title: string;
+  items: CalendarItem<T>[];
+  renderDetail: (row: T) => ReactNode;
+  emptyText: string;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <aside className="member-drawer rc-side" role="dialog" aria-label={`${kicker}: ${title}`} aria-live="polite">
+      <div className="drawer-top">
+        <div>
+          <span className="section-kicker">{kicker}</span>
+          <h2>{title}</h2>
+          <small className="rc-side-count">
+            {items.length} item{items.length === 1 ? "" : "s"}
+          </small>
+        </div>
+        <button className="ghost-icon" onClick={onClose} aria-label="Close details">
+          <X size={20} />
+        </button>
+      </div>
+      {items.length === 0 ? (
+        <p className="pp-muted">{emptyText}</p>
+      ) : (
+        <ul className="rc-side-list">
+          {items.map((it) => (
+            <li key={it.id} className={`rc-detail-item ${it.tone}`}>
+              {renderDetail(it.row)}
+            </li>
+          ))}
+        </ul>
+      )}
+    </aside>
+  );
 }
 
 export function RosterCalendar<T>({
@@ -146,25 +201,14 @@ export function RosterCalendar<T>({
       </div>
 
       {selected && (
-        <div className="rc-detail" aria-live="polite">
-          <div className="rc-detail-head">
-            <strong>{selected.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</strong>
-            <span>
-              {selectedItems.length} item{selectedItems.length === 1 ? "" : "s"}
-            </span>
-          </div>
-          {selectedItems.length === 0 ? (
-            <p className="pp-muted">{emptyDay}</p>
-          ) : (
-            <ul>
-              {selectedItems.map((it) => (
-                <li key={it.id} className={`rc-detail-item ${it.tone}`}>
-                  {renderDetail(it.row)}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+        <DayDetailPanel
+          kicker={selected.toLocaleDateString("en-GB", { weekday: "long" })}
+          title={selected.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}
+          items={selectedItems}
+          renderDetail={renderDetail}
+          emptyText={emptyDay}
+          onClose={() => setSelected(null)}
+        />
       )}
     </div>
   );
@@ -306,27 +350,14 @@ export function TeamCalendar<T>({
       )}
 
       {selected && (
-        <div className="rc-detail" aria-live="polite">
-          <div className="rc-detail-head">
-            <strong>
-              {selectedName} · {selected.day.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}
-            </strong>
-            <span>
-              {selectedItems.length} item{selectedItems.length === 1 ? "" : "s"}
-            </span>
-          </div>
-          {selectedItems.length === 0 ? (
-            <p className="pp-muted">{emptyDay}</p>
-          ) : (
-            <ul>
-              {selectedItems.map((it) => (
-                <li key={it.id} className={`rc-detail-item ${it.tone}`}>
-                  {renderDetail(it.row)}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+        <DayDetailPanel
+          kicker={selected.day.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}
+          title={selectedName}
+          items={selectedItems}
+          renderDetail={renderDetail}
+          emptyText={emptyDay}
+          onClose={() => setSelected(null)}
+        />
       )}
     </div>
   );

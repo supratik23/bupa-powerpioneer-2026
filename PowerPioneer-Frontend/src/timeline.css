@@ -344,3 +344,272 @@
   color: var(--muted);
   font-size: 13px;
 }
+
+/* ---------------------------------------------------------------------------
+   "How today looks" on My shift (components/DayPlan.tsx):
+   shift_roster start/end + appointment rows on one timeline.
+   --------------------------------------------------------------------------- */
+/* My shift: roster and appointments side by side; wellbeing cards in a row below */
+.employee-layout.stacked {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.employee-main.day-row {
+  display: grid;
+  grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
+  gap: 22px;
+  align-items: start;
+  min-width: 0;
+}
+
+.employee-side.wide {
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  align-items: start;
+}
+
+@media (max-width: 1050px) {
+  .employee-main.day-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 760px) {
+  .employee-side.wide {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.schedule-hint {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.schedule-item.selectable {
+  cursor: pointer;
+  border-radius: 12px;
+  transition: background-color 0.15s ease;
+}
+
+.schedule-item.selectable:hover {
+  background: #f4f7fc;
+}
+
+.schedule-item.selectable:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+.schedule-item.selected,
+.schedule-item.selected:hover {
+  margin: 0 -10px;
+  padding: 0 10px;
+  background: #eaf2ff;
+  border-left: 3px solid var(--blue);
+}
+
+.schedule-chevron {
+  color: #a3aec0;
+  justify-self: end;
+}
+
+.schedule-item.selected .schedule-chevron {
+  color: var(--blue);
+}
+
+.shift-tag.appts { color: #1d4f9e; background: #e9f2ff; }
+
+@media (max-width: 760px) {
+  .schedule-chevron {
+    display: none;
+  }
+}
+
+.dp-surface {
+  padding: 25px 26px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.dp-note {
+  margin: 0;
+  padding: 9px 12px;
+  color: #6a5420;
+  background: #fff6e0;
+  border-radius: 10px;
+  font-size: 12px;
+}
+
+.dp-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.dp-stats > div {
+  padding: 11px 12px;
+  background: #f6f8fc;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+}
+
+.dp-stats span {
+  color: var(--muted);
+  font-size: 10px;
+  margin-bottom: 6px;
+}
+
+.dp-stats strong {
+  color: var(--navy);
+  font-family: "Manrope", sans-serif;
+  font-size: 18px;
+}
+
+.dp-stats small {
+  color: var(--muted);
+  font-size: 10px;
+  margin-top: 3px;
+}
+
+.dp-callouts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.dp-callout {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 11px;
+  border-radius: 20px;
+  color: #1d4f9e;
+  background: #e9f2ff;
+  font-size: 11px;
+}
+
+.dp-callout.eol {
+  color: #7a3d8c;
+  background: #f6ebfa;
+}
+
+/* time-based fading only for shift markers and gaps; appointments fade when marked complete */
+.dp-list .tl-item.done:not(.appt) {
+  opacity: 0.6;
+}
+
+.dp-item.appt {
+  grid-template-columns: 52px 32px minmax(0, 1fr) auto;
+}
+
+.dp-item.completed .tl-copy strong {
+  color: var(--muted);
+  text-decoration: line-through;
+  text-decoration-color: rgba(19, 151, 125, 0.6);
+}
+
+.dp-item.completed .tl-copy > span {
+  opacity: 0.7;
+}
+
+.dp-node.complete { color: #ffffff; background: #13977d; }
+
+.dp-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 10px;
+  border: 1px solid #cfe0f5;
+  border-radius: 20px;
+  color: #1d4f9e;
+  background: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.dp-check:hover {
+  color: #ffffff;
+  background: #13977d;
+  border-color: #13977d;
+}
+
+.dp-check.on {
+  color: #13977d;
+  background: #e7f7f2;
+  border-color: #bfe8dc;
+}
+
+.dp-check.on:hover {
+  color: #4f5f78;
+  background: #eef1f6;
+  border-color: #dce4ee;
+}
+
+.dp-check:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+.dp-check:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+.dp-progress {
+  display: block;
+  height: 4px;
+  margin-top: 7px;
+  border-radius: 4px;
+  background: #e4e9f1;
+  overflow: hidden;
+}
+
+.dp-progress b {
+  display: block;
+  height: 100%;
+  background: #13977d;
+  border-radius: 4px;
+  transition: width 0.25s ease;
+}
+
+.dp-node.handover { color: #1769e8; background: #e9f2ff; }
+.dp-node.medication { color: #c2414f; background: #fdebee; }
+.dp-node.care { color: #0a968c; background: #e4f7f4; }
+.dp-node.assessment { color: #d9861a; background: #fff1dc; }
+.dp-node.review { color: #6740d4; background: #f0ebff; }
+.dp-node.docs { color: #4f5f78; background: #eef1f6; }
+.dp-node.eol { color: #9b3fae; background: #f6ebfa; }
+.dp-node.shift { color: #ffffff; background: #1f3f73; }
+.dp-node.gap { color: #13977d; background: #e7f7f2; }
+
+.dp-item.gap .tl-copy > span {
+  margin-top: 0;
+  font-style: italic;
+}
+
+.dp-item.shift .tl-copy strong {
+  color: #1f3f73;
+}
+
+@media (max-width: 520px) {
+  .dp-surface {
+    padding: 20px 16px 14px;
+  }
+
+  .dp-stats strong {
+    font-size: 15px;
+  }
+
+  .dp-item.appt {
+    grid-template-columns: 44px 32px minmax(0, 1fr) auto;
+  }
+
+  .dp-check {
+    padding: 6px 8px;
+  }
+}

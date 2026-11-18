@@ -105,7 +105,11 @@ export function MoodTrend({ employeeId, questionById }: { employeeId: string; qu
   const start = new Date(end.getTime() - (range - 1) * DAY);
   const plotW = width - left - M.right;
   const plotH = HEIGHT - M.top - M.bottom;
-  const x = (d: Date) => left + ((+d - +start) / Math.max(DAY, +end - +start)) * plotW;
+  // 30/90-day ranges have many points: draw plain dots instead of emoji bubbles to avoid clutter.
+  const compact = range !== 14;
+  // Keep points (active dot radius 26 + emoji) clear of the y-axis labels and the right edge.
+  const PAD_X = compact ? 14 : 36;
+  const x = (d: Date) => left + PAD_X + ((+d - +start) / Math.max(DAY, +end - +start)) * (plotW - 2 * PAD_X);
   const y = (mood: number) => M.top + ((5 - mood) / 4) * plotH;
 
   // Label each check-in day when they fit; otherwise fall back to evenly spaced dates.
@@ -228,7 +232,7 @@ export function MoodTrend({ employeeId, questionById }: { employeeId: string; qu
             {MOOD_LEVELS.map((lvl) => (
               <g key={lvl.at}>
                 <line x1={left} x2={width - M.right} y1={y(lvl.at)} y2={y(lvl.at)} className="mood-grid" />
-                <text x={left - 12} y={y(lvl.at)} className="mood-ylabel" dominantBaseline="central" textAnchor="end">
+                <text x={left - 14} y={y(lvl.at)} className="mood-ylabel" dominantBaseline="central" textAnchor="end">
                   <tspan className="mood-ylabel-emoji">{lvl.emoji}</tspan>
                   {!narrow && <tspan dx="6">{lvl.text}</tspan>}
                 </text>
@@ -249,19 +253,26 @@ export function MoodTrend({ employeeId, questionById }: { employeeId: string; qu
             )}
 
             {points.map((p, i) => (
-              <g key={+p.day} className={`mood-point ${i === current ? "active" : ""}`}>
-                <circle cx={x(p.day)} cy={y(p.mood)} r={i === current ? 26 : 19} className="mood-dot" />
-                <text
-                  // key changes on activation so the "pop" animation replays on every hover
-                  key={i === current ? "live" : "still"}
-                  x={x(p.day)}
-                  y={y(p.mood) + 1}
-                  textAnchor="middle"
-                  dominantBaseline="central"
-                  className="mood-emoji"
-                >
-                  {moodWord(p.mood).emoji}
-                </text>
+              <g key={+p.day} className={`mood-point ${i === current ? "active" : ""} ${compact ? "compact" : ""}`}>
+                <circle
+                  cx={x(p.day)}
+                  cy={y(p.mood)}
+                  r={compact ? (i === current ? 7 : 4) : i === current ? 26 : 19}
+                  className="mood-dot"
+                />
+                {!compact && (
+                  <text
+                    // key changes on activation so the "pop" animation replays on every hover
+                    key={i === current ? "live" : "still"}
+                    x={x(p.day)}
+                    y={y(p.mood) + 1}
+                    textAnchor="middle"
+                    dominantBaseline="central"
+                    className="mood-emoji"
+                  >
+                    {moodWord(p.mood).emoji}
+                  </text>
+                )}
               </g>
             ))}
           </svg>

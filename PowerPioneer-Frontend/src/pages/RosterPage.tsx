@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { FormEvent } from "react";
 import { CalendarDays, List, Plus } from "lucide-react";
 import { api } from "../api/client";
-import { ABSENCE_TYPES, ATTENDANCE_STATUSES, SHIFT_TYPES } from "../api/types";
+import { ABSENCE_TYPES, RECORDABLE_ATTENDANCE_STATUSES, SHIFT_TYPES } from "../api/types";
 import type { AbsenceType, Attendance, AttendanceStatus, Employee, Shift, ShiftType } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import { formatDate, formatTime, fromLocalInput, isoDate, label, num, toLocalInput } from "../lib/format";
@@ -36,6 +36,7 @@ const attendanceTone: Record<AttendanceStatus, Tone> = {
   LATE: "warning",
   ABSENT: "danger",
   ON_LEAVE: "info",
+  NOT_SCHEDULED: "neutral",
 };
 
 function shiftFlags(s: Shift) {
@@ -259,7 +260,7 @@ function AttendanceEditor({
           label="Status"
           value={form.attendance_status}
           onChange={(v) => setForm({ ...form, attendance_status: v as AttendanceStatus })}
-          options={enumOptions(ATTENDANCE_STATUSES, label)}
+          options={enumOptions(RECORDABLE_ATTENDANCE_STATUSES, label)}
           required
         />
         <TextField label="Late minutes" type="number" min={0} value={form.late_minutes} onChange={(v) => setForm({ ...form, late_minutes: v })} />
@@ -319,6 +320,7 @@ const attendanceChipTone: Record<AttendanceStatus, string> = {
   LATE: "late",
   ABSENT: "absent",
   ON_LEAVE: "leave",
+  NOT_SCHEDULED: "unscheduled",
 };
 
 const attendanceShort: Record<AttendanceStatus, string> = {
@@ -326,6 +328,7 @@ const attendanceShort: Record<AttendanceStatus, string> = {
   LATE: "Late",
   ABSENT: "Off",
   ON_LEAVE: "Leave",
+  NOT_SCHEDULED: "—",
 };
 
 const SHIFT_LEGEND = [
@@ -339,6 +342,7 @@ const ATTENDANCE_LEGEND = [
   { tone: "late", label: "Late" },
   { tone: "absent", label: "Absent" },
   { tone: "leave", label: "On leave" },
+  { tone: "unscheduled", label: "Not scheduled" },
 ];
 
 const firstName = (name: string) => name.split(" ")[0] ?? name;

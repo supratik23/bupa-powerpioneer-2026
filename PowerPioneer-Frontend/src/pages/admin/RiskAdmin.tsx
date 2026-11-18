@@ -8,7 +8,7 @@ import type {
   RiskSnapshot,
   WellbeingResult,
 } from "../../api/types";
-import { featureLabel, formatDate, formatDateTime, isoDate, label, num } from "../../lib/format";
+import { featureLabel, formatDate, formatDateTime, isoDate, label, num, wellbeingPercent } from "../../lib/format";
 import { useAction, useAsync } from "../../lib/useAsync";
 import { useEmployees } from "../../lib/useEmployees";
 import { bandTone } from "../WellbeingPage";
@@ -27,7 +27,7 @@ function CalculatePanel({ onDone }: { onDone: () => void }) {
         employee_id: employee,
         snapshot_date: date,
       });
-      setNotice(`Score ${num(res.snapshot.wellbeing_score)} · ${label(res.prediction.risk_band)} risk.`);
+      setNotice(`Wellbeing ${num(wellbeingPercent(res.snapshot.wellbeing_score), 0)}/100 · risk ${num(res.prediction.risk_score, 0)}/100 · ${label(res.prediction.risk_band)}.`);
       onDone();
     });
 
@@ -171,7 +171,7 @@ export default function RiskAdmin() {
             empty="No snapshots."
             columns={[
               { header: "Employee", render: (s) => <><strong>{nameOf(s.employee_id)}</strong><small>{formatDate(s.snapshot_date)}</small></> },
-              { header: "Score", render: (s) => <><strong>{num(s.wellbeing_score)}</strong>{s.risk_label && <Pill tone={bandTone[s.risk_label]}>{label(s.risk_label)}</Pill>}</> },
+              { header: "Wellbeing", render: (s) => <><strong title={`Raw check-in score ${num(s.wellbeing_score, 2)} / 4`}>{num(wellbeingPercent(s.wellbeing_score), 0)}<small>/100</small></strong>{s.risk_label && <Pill tone={bandTone[s.risk_label]}>{label(s.risk_label)}</Pill>}</> },
               { header: "Hours / overtime", render: (s) => <>{num(s.actual_hours_worked_30d)}h<small>{num(s.overtime_hours_30d)}h overtime</small></> },
               { header: "Nights / long", render: (s) => `${s.night_shifts_30d} / ${s.long_shifts_30d}` },
               {

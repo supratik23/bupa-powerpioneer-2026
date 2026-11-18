@@ -8,8 +8,9 @@ from rest_framework.response import Response
 from common.mixins import EmployeeScopedViewSetMixin
 from common.permissions import can_manage, ensure
 
-from .models import Attendance, LeaveRequest, LeaveStatus, ShiftRoster
+from .models import Appointment, AppointmentStatus, Attendance, LeaveRequest, LeaveStatus, ShiftRoster
 from .serializers import (
+    AppointmentSerializer,
     AttendanceSerializer,
     LeaveDecisionSerializer,
     LeaveRequestSerializer,
@@ -124,3 +125,43 @@ class AttendanceViewSet(EmployeeScopedViewSetMixin, viewsets.ModelViewSet):
         "attendance_date": ["gte", "lte"],
     }
     ordering_fields = ["attendance_date", "late_minutes"]
+
+
+@extend_schema(tags=["Appointments"])
+class AppointmentViewSet(EmployeeScopedViewSetMixin, viewsets.ReadOnlyModelViewSet):
+    """
+    Daily appointments (care tasks) from the Supabase ``appointment`` table.
+    Employees see their own; managers see their direct reports'; staff see all.
+    Rows are created by the data pipeline; the only write is marking one
+    complete / reopening it (the employee themself, their manager or staff).
+    """
+
+    queryset = Appointment.objects.all()
+    serializer_class = AppointmentSerializer
+    filterset_fields = {
+        "employee": ["exact"],
+        "appointment_date": ["exact", "gte", "lte"],
+        "appointment_type": ["exact"],
+        "status": ["exact"],
+    }
+    ordering_fields = ["appointment_date", "start_time"]
+
+    def _set_status(self, request, status):
+        appointment = self.get_object()
+        ensure(
+            appointment.employee_id == request.user.pk or can_manage(request.user, appointment.employee),
+            "Only the employee, their manager or staff can update this appointment.",
+        )
+        appointment.status = status
+        appointment.save(update_fields=["status"])
+        return Response(AppointmentSerializer(appointment).data)
+
+    @extend_schema(summary="Mark an appointment completed", request=None, responses=AppointmentSerializer)
+    @action(detail=True, methods=["post"])
+    def complete(self, request, pk=None):
+        return self._set_status(request, AppointmentStatus.COMPLETED)
+
+    @extend_schema(summary="Undo completion (back to SCHEDULED)", request=None, responses=AppointmentSerializer)
+    @action(detail=True, methods=["post"])
+    def reopen(self, request, pk=None):
+        return self._set_status(request, AppointmentStatus.SCHEDULED)

@@ -8,6 +8,7 @@ import {
   Check,
   CircleHelp,
   ChevronDown,
+  ChevronRight,
   Clock3,
   Heart,
   HeartPulse,
@@ -18,7 +19,6 @@ import {
   MessageCircleHeart,
   Moon,
   PhoneCall,
-  RefreshCw,
   ShieldCheck,
   Sparkles,
   Sun,
@@ -30,9 +30,11 @@ import {
 } from "lucide-react";
 import { api, errorMessage } from "./api/client";
 import type {
+  Appointment,
   Employee,
   Question,
   RiskBand,
+  RiskPrediction,
   RiskSnapshot,
   Shift,
   WellbeingSummary,
@@ -40,7 +42,7 @@ import type {
 import { AuthProvider, useAuth } from "./auth/AuthContext";
 import { ProfileMenu } from "./components/HeaderMenus";
 import { Relations } from "./components/Relations";
-import { ErrorNote, Loading, SuccessNote } from "./components/ui";
+import { ErrorNote, Loading } from "./components/ui";
 import {
   avatarColor,
   featureLabel,
@@ -50,8 +52,13 @@ import {
   initials,
   isoDate,
   label,
+  wellbeingPercent,
 } from "./lib/format";
+import { daysBeforeLatest, withSupabaseRows } from "./lib/wellbeingData";
 import { RosterTimelineDrawer } from "./components/DayTimeline";
+import { DayPlan } from "./components/DayPlan";
+import { ReturnToWorkTeam } from "./components/ReturnToWork";
+import { isCompleted, shiftDay } from "./lib/appointments";
 import { DAYPART_META, ThemeToggle } from "./components/ThemeToggle";
 import { DaypartProvider, useDaypart } from "./lib/daypart";
 import { usePage } from "./lib/nav";
@@ -59,7 +66,7 @@ import { leadingFactors, trendInsight, weeklySeries } from "./lib/teamTrends";
 import type { WeeklyPoint } from "./lib/teamTrends";
 import { dayLabel, shiftFlags, shiftHours, shiftKind, shiftRange, shiftState, shiftTitle } from "./lib/shifts";
 import type { PageId } from "./lib/nav";
-import { useAction, useAsync } from "./lib/useAsync";
+import { useAsync } from "./lib/useAsync";
 import { useEmployees } from "./lib/useEmployees";
 import AuthPage from "./pages/AuthPage";
 import LeavePage from "./pages/LeavePage";
@@ -161,16 +168,35 @@ function toNudge(question: Question, index: number, completed: boolean, isFirstP
 
 function levelFor(band: RiskBand | null): RiskLevel {
   if (band === "HIGH" || band === "CRITICAL") return "Needs attention";
-  if (band === "MODERATE") return "Keep an eye";
+  if (band === "MEDIUM" || band === "MODERATE") return "Keep an eye";
   return "Doing well";
 }
 
-function toMember(summary: WellbeingSummary, employee: Employee | undefined): TeamMember {
-  const score = summary.latest_wellbeing_score;
-  const risk = score === null ? 0 : Math.round(100 - Number(score));
-  const history = summary.history
-    .filter((h) => h.wellbeing_score !== null)
-    .map((h) => 100 - Number(h.wellbeing_score));
+/** risk_prediction.risk_score (0–100, XGBoost) per employee, oldest first. */
+function riskSeriesByEmployee(predictions: RiskPrediction[]): Map<string, number[]> {
+  const byEmployee = new Map<string, number[]>();
+  [...predictions]
+    .sort((a, b) => a.predicted_at.localeCompare(b.predicted_at))
+    .forEach((p) => {
+      const list = byEmployee.get(p.employee_id) ?? [];
+      list.push(Number(p.risk_score));
+      byEmployee.set(p.employee_id, list);
+    });
+  return byEmployee;
+}
+
+function toMember(summary: WellbeingSummary, employee: Employee | undefined, riskSeries?: number[]): TeamMember {
+  // Prefer the model's risk_score; fall back to inverted wellbeing (1–4 scale -> 0–100).
+  const fallback = summary.history
+    .map((h) => wellbeingPercent(h.wellbeing_score))
+    .filter((v): v is number => v !== null)
+    .map((v) => 100 - v);
+  const history = riskSeries?.length ? riskSeries : fallback;
+  const latestWellbeing = wellbeingPercent(summary.latest_wellbeing_score);
+  const risk = history.length
+    ? Math.round(history[history.length - 1])
+    : latestWellbeing === null ? 0 : Math.round(100 - latestWellbeing);
+  const scored = history.length > 0 || latestWellbeing !== null;
   const increasing = summary.top_drivers.filter((d) => d.contribution_direction === "INCREASES_RISK");
   const factors = (increasing.length ? increasing : summary.top_drivers).map((d) => featureLabel(d.feature_name));
   return {
@@ -180,11 +206,11 @@ function toMember(summary: WellbeingSummary, employee: Employee | undefined): Te
     role: employee?.job_role ?? "Team member",
     department: employee?.department ?? null,
     risk,
-    // Risk change since the previous snapshot (wellbeing trend inverted).
-    delta: summary.trend === null ? 0 : Math.round(-summary.trend),
+    // Risk-point change since the previous prediction / snapshot.
+    delta: history.length >= 2 ? Math.round(history[history.length - 1] - history[history.length - 2]) : 0,
     level: levelFor(summary.latest_risk_band),
     band: summary.latest_risk_band,
-    factors: factors.length ? factors : [score === null ? "Not calculated yet" : "No major risk factors"],
+    factors: factors.length ? factors : [scored ? "No major risk factors" : "Not calculated yet"],
     trend: history.length ? history : [risk],
     color: avatarColor(summary.employee_id),
     drivers: summary.top_drivers,
@@ -194,9 +220,10 @@ function toMember(summary: WellbeingSummary, employee: Employee | undefined): Te
 // ---------------------------------------------------------------------------
 // layout
 // ---------------------------------------------------------------------------
-function BrandMark() {
+/** Logo: clicking it returns to the default view (My shift). */
+function BrandMark({ onHome }: { onHome: () => void }) {
   return (
-    <div className="brand-mark" aria-label="ShiftGuard home">
+    <button type="button" className="brand-mark brand-home" aria-label="ShiftGuard home" title="Go to My shift" onClick={onHome}>
       <div className="pulse-mark">
         <Activity size={23} strokeWidth={2.3} />
       </div>
@@ -204,7 +231,7 @@ function BrandMark() {
         <strong>ShiftGuard</strong>
         <span>Frontline wellbeing</span>
       </div>
-    </div>
+    </button>
   );
 }
 
@@ -258,7 +285,12 @@ function AppHeader({
   const role: Role | null = page === "employee" || page === "manager" || page === "wellbeing" ? page : null;
   return (
     <header className="app-header">
-      <BrandMark />
+      <BrandMark
+        onHome={() => {
+          setMobileOpen(false);
+          navigate("employee");
+        }}
+      />
       <div className="desktop-role-switch">
         <RoleSwitch role={role} setRole={navigate} showTeam={isManager} />
       </div>
@@ -314,8 +346,21 @@ function MetricCard({
   );
 }
 
-/** One of the user's shifts in the "Your upcoming shifts" list (from /shifts/). */
-function ScheduleItem({ shift, now }: { shift: Shift; now: Date }) {
+/** One of the user's shifts in the roster list (from /shifts/); selecting it shows its appointments. */
+function ScheduleItem({
+  shift,
+  now,
+  selected,
+  onSelect,
+  appointments,
+}: {
+  shift: Shift;
+  now: Date;
+  selected: boolean;
+  onSelect: () => void;
+  /** That day's appointments; null while loading. */
+  appointments: Appointment[] | null;
+}) {
   const state = shiftState(shift, now);
   const kind = shiftKind(shift.shift_type);
   const KindIcon = kind === "night" ? Moon : kind === "oncall" ? PhoneCall : kind === "long" ? Sunrise : Sun;
@@ -327,7 +372,19 @@ function ScheduleItem({ shift, now }: { shift: Shift; now: Date }) {
     load != null ? `${Number(load)} patients` : null,
   ].filter(Boolean).join(" · ");
   return (
-    <li className={`schedule-item ${state}`}>
+    <li
+      className={`schedule-item selectable ${state} ${selected ? "selected" : ""}`}
+      role="button"
+      tabIndex={0}
+      aria-pressed={selected}
+      onClick={onSelect}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect();
+        }
+      }}
+    >
       <div className="schedule-time">
         <strong>{dayLabel(shift.shift_start, now)}</strong>
         <span>{shiftHours(shift)}</span>
@@ -341,15 +398,21 @@ function ScheduleItem({ shift, now }: { shift: Shift; now: Date }) {
           {state === "active" && <span className="live-pill">In progress</span>}
         </div>
         <span>{detail}</span>
-        {flags.length > 0 && (
+        {(flags.length > 0 || (appointments && appointments.length > 0)) && (
           <div className="schedule-tags">
+            {appointments && appointments.length > 0 && (
+              <em className="shift-tag appts">
+                {appointments.length} appointment{appointments.length === 1 ? "" : "s"}
+                {appointments.some(isCompleted) ? ` · ${appointments.filter(isCompleted).length} done` : ""}
+              </em>
+            )}
             {flags.map((f) => (
               <em key={f.id} className={`shift-tag ${f.id}`}>{f.text}</em>
             ))}
           </div>
         )}
       </div>
-      <span aria-hidden="true" />
+      <ChevronRight className="schedule-chevron" size={16} aria-hidden="true" />
     </li>
   );
 }
@@ -465,7 +528,8 @@ function useMyShifts(employeeId: string) {
     () =>
       api.list<Shift>("/shifts/", {
         employee: employeeId,
-        shift_start__gte: new Date(Date.now() - 24 * 3600 * 1000).toISOString(),
+        // a week back, so recent shifts (and their appointments) can be selected too
+        shift_start__gte: new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString(),
         ordering: "shift_start",
       }),
     [employeeId],
@@ -604,6 +668,9 @@ function EmployeeView({
   const [checkInError, setCheckInError] = useState<string | null>(null);
   const [timelineOpen, setTimelineOpen] = useState(false);
   const closeTimeline = useCallback(() => setTimelineOpen(false), []);
+  const [selectedShiftId, setSelectedShiftId] = useState<string | null>(null);
+  const [busyAppointments, setBusyAppointments] = useState<Set<string>>(() => new Set());
+  const [appointmentError, setAppointmentError] = useState<string | null>(null);
 
   // Answered-this-session questions stay visible as "Done" until the next load.
   const wellbeingNudges = useMemo(() => {
@@ -647,9 +714,71 @@ function EmployeeView({
   };
 
   const today = new Date();
-  const summary = shiftSummary(shifts.data ?? []);
-  const cards = shiftCards(focusShift(shifts.data ?? [], today).focus);
-  const upcomingShifts = (shifts.data ?? []).filter((s) => new Date(s.shift_end) > today).slice(0, 6);
+  const allShifts = shifts.data ?? [];
+  const summary = shiftSummary(allShifts);
+  const cards = shiftCards(focusShift(allShifts, today).focus);
+  // Roster list: the last few worked shifts plus what's coming up.
+  const rosterShifts = [
+    ...allShifts.filter((s) => new Date(s.shift_end) <= today).slice(-3),
+    ...allShifts.filter((s) => new Date(s.shift_end) > today).slice(0, 5),
+  ];
+
+  // Appointments for every day in the roster list (one request), grouped by day.
+  const firstDay = rosterShifts.length ? shiftDay(rosterShifts[0]) : null;
+  const lastDay = rosterShifts.length ? shiftDay(rosterShifts[rosterShifts.length - 1]) : null;
+  const appointments = useAsync(
+    () =>
+      firstDay && lastDay
+        ? api.listAll<Appointment>("/appointments/", {
+            employee: meId,
+            appointment_date__gte: firstDay,
+            appointment_date__lte: lastDay,
+            ordering: "appointment_date,start_time",
+          })
+        : Promise.resolve([] as Appointment[]),
+    [meId, firstDay, lastDay],
+  );
+  const apptsByDay = useMemo(() => {
+    const map = new Map<string, Appointment[]>();
+    (appointments.data ?? []).forEach((a) => map.set(a.appointment_date, [...(map.get(a.appointment_date) ?? []), a]));
+    return map;
+  }, [appointments.data]);
+  const apptsFor = (s: Shift) => apptsByDay.get(shiftDay(s)) ?? [];
+
+  // Selected roster shift: the user's pick, else today's shift if it has appointments,
+  // else the most recent shift that has appointments.
+  const focus = focusShift(allShifts, today).focus;
+  const defaultShift =
+    (focus && apptsFor(focus).length ? focus : null) ??
+    [...rosterShifts].reverse().find((s) => new Date(s.shift_start) <= today && apptsFor(s).length > 0) ??
+    focus ??
+    rosterShifts[0] ??
+    null;
+  const selectedShift = rosterShifts.find((s) => s.shift_id === selectedShiftId) ?? defaultShift;
+
+  const toggleAppointment = async (a: Appointment) => {
+    const completing = !isCompleted(a);
+    const setStatus = (status: Appointment["status"]) =>
+      appointments.setData((list) =>
+        (list ?? []).map((x) => (x.appointment_id === a.appointment_id ? { ...x, status } : x)),
+      );
+    setAppointmentError(null);
+    setBusyAppointments((prev) => new Set(prev).add(a.appointment_id));
+    setStatus(completing ? "COMPLETED" : "SCHEDULED"); // optimistic
+    try {
+      const updated = await api.post<Appointment>(`/appointments/${a.appointment_id}/${completing ? "complete" : "reopen"}/`);
+      setStatus(updated.status);
+    } catch (err) {
+      setStatus(a.status);
+      setAppointmentError(errorMessage(err));
+    } finally {
+      setBusyAppointments((prev) => {
+        const next = new Set(prev);
+        next.delete(a.appointment_id);
+        return next;
+      });
+    }
+  };
 
   return (
     <main className="employee-page page-shell">
@@ -696,33 +825,60 @@ function EmployeeView({
         />
       </section>
 
-      <div className="employee-layout">
-        <section className="surface schedule-surface">
-          <div className="surface-heading">
-            <div>
-              <span className="section-kicker">Your roster</span>
-              <h2>Upcoming shifts</h2>
+      <div className="employee-layout stacked">
+        {/* Roster (left) and the selected shift's appointments (right) */}
+        <div className="employee-main day-row">
+          <section className="surface schedule-surface">
+            <div className="surface-heading">
+              <div>
+                <span className="section-kicker">Your roster</span>
+                <h2>Recent &amp; upcoming shifts</h2>
+              </div>
+              <button className="secondary-button" onClick={() => setTimelineOpen(true)}>
+                <CalendarDays size={16} />
+                Full roster
+              </button>
             </div>
-            <button className="secondary-button" onClick={() => setTimelineOpen(true)}>
-              <CalendarDays size={16} />
-              Full roster
-            </button>
-          </div>
-          <ErrorNote message={shifts.error} onRetry={shifts.reload} />
-          {shifts.loading ? (
-            <Loading text="Loading your shifts…" />
-          ) : upcomingShifts.length === 0 ? (
-            <p className="schedule-empty">No upcoming shifts on your roster.</p>
-          ) : (
-            <ol className="schedule-list">
-              {upcomingShifts.map((shift) => (
-                <ScheduleItem key={shift.shift_id} shift={shift} now={today} />
-              ))}
-            </ol>
-          )}
-        </section>
+            <ErrorNote message={shifts.error} onRetry={shifts.reload} />
+            {shifts.loading ? (
+              <Loading text="Loading your shifts…" />
+            ) : rosterShifts.length === 0 ? (
+              <p className="schedule-empty">No shifts on your roster.</p>
+            ) : (
+              <>
+                <p className="schedule-hint">Select a shift to see its appointments.</p>
+                <ol className="schedule-list">
+                  {rosterShifts.map((shift) => (
+                    <ScheduleItem
+                      key={shift.shift_id}
+                      shift={shift}
+                      now={today}
+                      selected={selectedShift?.shift_id === shift.shift_id}
+                      onSelect={() => setSelectedShiftId(shift.shift_id)}
+                      appointments={appointments.loading ? null : apptsFor(shift)}
+                    />
+                  ))}
+                </ol>
+              </>
+            )}
+          </section>
 
-        <aside className="employee-side">
+          <DayPlan
+            shift={selectedShift}
+            appointments={selectedShift ? apptsFor(selectedShift) : []}
+            loading={shifts.loading || appointments.loading}
+            error={appointments.error ?? appointmentError}
+            onRetry={() => {
+              setAppointmentError(null);
+              void appointments.reload();
+            }}
+            onToggle={(a) => void toggleAppointment(a)}
+            busyIds={busyAppointments}
+            now={today}
+          />
+        </div>
+
+        <aside className="employee-side wide">
           <section className="surface moments-card">
             <div className="moments-heading">
               <div>
@@ -1023,44 +1179,23 @@ function useMemberStats(memberId: string) {
 function TeamMemberDrawer({
   member,
   onClose,
-  onChanged,
 }: {
   member: TeamMember | null;
   onClose: () => void;
-  onChanged: () => void;
 }) {
   if (!member) return null;
-  return (
-    <TeamMemberDrawerBody
-      key={member.id}
-      member={member}
-      onClose={onClose}
-      onChanged={onChanged}
-    />
-  );
+  return <TeamMemberDrawerBody key={member.id} member={member} onClose={onClose} />;
 }
 
 function TeamMemberDrawerBody({
   member,
   onClose,
-  onChanged,
 }: {
   member: TeamMember;
   onClose: () => void;
-  onChanged: () => void;
 }) {
   const stats = useMemberStats(member.id);
   const employee = useAsync(() => api.get<Employee>(`/employees/${member.id}/`), [member.id]);
-  const action = useAction();
-  const [notice, setNotice] = useState<string | null>(null);
-
-  const recalculate = () =>
-    action.run(async () => {
-      await api.post("/wellbeing/calculate/", { employee_id: member.id });
-      setNotice("Wellbeing score recalculated.");
-      onChanged();
-    });
-
   const s = stats.data;
 
   return (
@@ -1117,12 +1252,6 @@ function TeamMemberDrawerBody({
             </p>
           </div>
         </div>
-        <ErrorNote message={action.error} />
-        <SuccessNote message={notice} />
-        <button className="secondary-button full" disabled={action.busy} onClick={() => void recalculate()}>
-          <RefreshCw size={15} /> Recalculate score
-        </button>
-
         {employee.data && (
           <div style={{ marginTop: 16 }}>
             <Relations employee={employee.data} onChanged={(updated) => employee.setData(updated)} />
@@ -1145,19 +1274,33 @@ function ManagerView({ recentUpdate }: { recentUpdate: boolean }) {
     () =>
       api.listAll<RiskSnapshot>("/risk-snapshots/", {
         snapshot_date__gte: isoDate(new Date(Date.now() - weeks * 7 * 86400000)),
-        is_training_record: false,
-        ordering: "snapshot_date",
+        // No is_training_record filter: every snapshot the Supabase pipeline wrote is flagged as training.
+        ordering: "-snapshot_date",
       }),
     [weeks],
   );
+  // Last 7 days of model predictions, anchored on the newest snapshot so stale data still shows.
+  const predictionsFrom = useMemo(
+    () => (snapshots.data ? daysBeforeLatest(snapshots.data, 7) : null),
+    [snapshots.data],
+  );
+  const predictions = useAsync(
+    () =>
+      predictionsFrom
+        ? api.listAll<RiskPrediction>("/risk-predictions/", { predicted_at__gte: predictionsFrom, ordering: "predicted_at" })
+        : Promise.resolve([] as RiskPrediction[]),
+    [predictionsFrom],
+  );
+  const riskSeries = useMemo(() => riskSeriesByEmployee(predictions.data ?? []), [predictions.data]);
 
   const members = useMemo(
     () =>
       (team.data ?? [])
         .filter((s) => s.employee_id !== user?.employee_id)
-        .map((s) => toMember(s, byId.get(s.employee_id)))
+        .map((s) => withSupabaseRows(s, snapshots.data ?? [], predictions.data ?? []))
+        .map((s) => toMember(s, byId.get(s.employee_id), riskSeries.get(s.employee_id)))
         .sort((a, b) => b.risk - a.risk),
-    [team.data, byId, user?.employee_id],
+    [team.data, byId, user?.employee_id, riskSeries, snapshots.data, predictions.data],
   );
   const departments = useMemo(
     () => [...new Set(members.map((m) => m.department).filter((d): d is string => Boolean(d)))].sort(),
@@ -1261,6 +1404,14 @@ function ManagerView({ recentUpdate }: { recentUpdate: boolean }) {
           )}
         </article>
       </section>
+
+      <ReturnToWorkTeam
+        members={(team.data ?? [])
+          .filter((s) => s.employee_id !== user?.employee_id)
+          .map((s) => byId.get(s.employee_id))
+          .filter((e): e is Employee => Boolean(e))}
+        snapshots={snapshots.data ?? []}
+      />
 
       <div className="manager-grid">
         <section className="surface chart-surface">
@@ -1375,11 +1526,7 @@ function ManagerView({ recentUpdate }: { recentUpdate: boolean }) {
         </div>
       </section>
 
-      <TeamMemberDrawer
-        member={selected}
-        onClose={() => setSelectedId(null)}
-        onChanged={() => void team.reload()}
-      />
+      <TeamMemberDrawer member={selected} onClose={() => setSelectedId(null)} />
     </main>
   );
 }
