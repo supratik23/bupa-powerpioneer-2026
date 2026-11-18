@@ -1,0 +1,366 @@
+/*
+ * Time-of-day colour themes, applied app-wide.
+ * Activated by <html data-daypart="morning|afternoon|evening"> (see lib/daypart.tsx).
+ * Each theme sets a palette of tokens; the shared rules below apply them.
+ * The evening theme is dark: the bulk of its overrides are generated into
+ * theme-evening.generated.css (npm run theme:evening); hand tweaks live here.
+ */
+
+html[data-daypart="morning"] {
+  /* Morning: fresh sky blue */
+  --navy: #071b4a;
+  --blue: #1769e8;
+  --blue-dark: #0a4bbf;
+  --line: #dfe8f3;
+  --surface: #ffffff;
+  --dp-bg: #f2f8ff;
+  --dp-glow-1: rgba(66, 194, 255, 0.16);
+  --dp-glow-2: rgba(120, 220, 255, 0.12);
+  --dp-header: rgba(255, 255, 255, 0.95);
+  --dp-accent-text: #1a5fc4;
+  --dp-accent-soft: #e9f3ff;
+  --dp-accent-border: #d6e6fb;
+  --dp-gradient: linear-gradient(100deg, #0f8fe0, #1769e8 55%, #3d5ae6);
+  --dp-gradient-shadow: rgba(23, 105, 232, 0.22);
+  --dp-deep: linear-gradient(140deg, #072b77, #115dca 62%, #087fa8);
+  --dp-active-row: rgba(226, 240, 255, 0.85);
+  --dp-hero: linear-gradient(120deg, rgba(170, 220, 255, 0.4), rgba(226, 242, 255, 0.15) 60%, transparent);
+  --dp-focus: rgba(23, 105, 232, 0.28);
+  --dp-seg-track: rgba(16, 34, 71, 0.06);
+  --dp-seg-active: #ffffff;
+}
+
+html[data-daypart="afternoon"] {
+  /* Afternoon: warm orange sun */
+  --navy: #3b1d0a;
+  --blue: #ea6a12;
+  --blue-dark: #c2540a;
+  --line: #f3e2d2;
+  --surface: #ffffff;
+  --dp-bg: #fff6ee;
+  --dp-glow-1: rgba(255, 150, 60, 0.22);
+  --dp-glow-2: rgba(255, 196, 90, 0.18);
+  --dp-header: rgba(255, 250, 245, 0.95);
+  --dp-accent-text: #b5500c;
+  --dp-accent-soft: #ffeedd;
+  --dp-accent-border: #fad7b6;
+  --dp-gradient: linear-gradient(100deg, #f59e0b, #f07818 55%, #e2531f);
+  --dp-gradient-shadow: rgba(234, 106, 18, 0.26);
+  --dp-deep: linear-gradient(140deg, #7a2e0b, #cf560f 62%, #f08c1c);
+  --dp-active-row: rgba(255, 230, 205, 0.85);
+  --dp-hero: linear-gradient(120deg, rgba(255, 200, 140, 0.45), rgba(255, 232, 205, 0.15) 60%, transparent);
+  --dp-focus: rgba(234, 106, 18, 0.3);
+  --dp-seg-track: rgba(120, 60, 10, 0.07);
+  --dp-seg-active: #fffaf2;
+}
+
+html[data-daypart="evening"] {
+  /* Evening: dark indigo night */
+  color-scheme: dark;
+  background: #0e1024;
+  --navy: #eceaff;
+  --text: #dcdcf5;
+  --muted: #9b9dc2;
+  --blue: #8b74ff;
+  --blue-dark: #6d55e8;
+  --line: #2b2d52;
+  --surface: #1a1c38;
+  --shadow: 0 18px 50px rgba(0, 0, 0, 0.4);
+  --dp-bg: #0e1024;
+  --dp-glow-1: rgba(110, 80, 230, 0.18);
+  --dp-glow-2: rgba(200, 80, 150, 0.1);
+  --dp-header: rgba(18, 20, 42, 0.92);
+  --dp-accent-text: #b9aaff;
+  --dp-accent-soft: #252347;
+  --dp-accent-border: #3a3670;
+  --dp-gradient: linear-gradient(100deg, #5b45d6, #8a4ed4 55%, #d0588a);
+  --dp-gradient-shadow: rgba(0, 0, 0, 0.35);
+  --dp-deep: linear-gradient(140deg, #1d1250, #4a2fa8 62%, #a2468a);
+  --dp-active-row: rgba(139, 116, 255, 0.16);
+  --dp-hero: linear-gradient(120deg, rgba(110, 80, 230, 0.22), rgba(200, 80, 150, 0.08) 60%, transparent);
+  --dp-focus: rgba(160, 140, 255, 0.45);
+  --dp-seg-track: rgba(255, 255, 255, 0.06);
+  --dp-seg-active: #2c2a58;
+}
+
+/* ---- Page frame ---- */
+
+html[data-daypart] body {
+  background:
+    radial-gradient(circle at 8% 0%, var(--dp-glow-1), transparent 30rem),
+    radial-gradient(circle at 92% 8%, var(--dp-glow-2), transparent 26rem),
+    var(--dp-bg);
+  background-attachment: fixed;
+}
+
+html[data-daypart] .app-header {
+  background: var(--dp-header);
+}
+
+html[data-daypart] button:focus-visible {
+  outline-color: var(--dp-focus);
+}
+
+html[data-daypart] .welcome-row,
+html[data-daypart] .manager-title-row {
+  margin: -12px -18px 0;
+  padding: 18px;
+  border-radius: 20px;
+  background: var(--dp-hero);
+}
+
+/* ---- Accents shared by every page ---- */
+
+html[data-daypart] .pulse-mark,
+html[data-daypart] .primary-button,
+html[data-daypart] .pp-bubble.mine {
+  background: var(--dp-gradient);
+  box-shadow: 0 8px 20px var(--dp-gradient-shadow);
+}
+
+html[data-daypart] .support-banner,
+html[data-daypart] .panel-header,
+html[data-daypart] .floating-support {
+  background: var(--dp-deep);
+}
+
+html[data-daypart] .section-kicker,
+html[data-daypart] .eyebrow,
+html[data-daypart] .role-switch button.active,
+html[data-daypart] .question-heading .question-icon.blue {
+  color: var(--dp-accent-text);
+}
+
+html[data-daypart] .metric-card .eyebrow {
+  color: var(--muted);
+}
+
+html[data-daypart] .metric-icon.blue,
+html[data-daypart] .schedule-symbol,
+html[data-daypart] .moment-marker {
+  color: var(--blue);
+  background: var(--dp-accent-soft);
+}
+
+html[data-daypart] .schedule-item.active {
+  background: linear-gradient(90deg, var(--dp-active-row), transparent);
+  border-left-color: var(--blue);
+}
+
+html[data-daypart] .moment-row.now,
+html[data-daypart] .pp-chat-list button.active {
+  border-color: var(--dp-accent-border);
+  background: var(--dp-accent-soft);
+}
+
+html[data-daypart] .demo-button,
+html[data-daypart] .download-source {
+  color: var(--dp-accent-text);
+  background: var(--dp-accent-soft);
+  border-color: var(--dp-accent-border);
+}
+
+html[data-daypart] .secondary-button {
+  color: var(--dp-accent-text);
+  border-color: var(--dp-accent-border);
+}
+
+html[data-daypart] .pp-menu button:hover,
+html[data-daypart] .pp-menu button.active {
+  color: var(--dp-accent-text);
+  background: var(--dp-accent-soft);
+}
+
+html[data-daypart] .nudge-card,
+html[data-daypart] .update-banner {
+  background: linear-gradient(140deg, var(--dp-accent-soft), var(--surface, #fff));
+}
+
+html[data-daypart] .selected .radio-dot {
+  border-color: var(--blue);
+}
+
+html[data-daypart] .radio-dot span {
+  background: var(--blue);
+}
+
+html[data-daypart] .pp-chat-compose input:focus {
+  box-shadow: 0 0 0 3px var(--dp-focus);
+}
+
+/* ---- Theme toggle (header button + popover) ---- */
+
+.dp-toggle {
+  position: relative;
+  color: var(--dp-accent-text, #2160ba);
+  background: var(--dp-accent-soft, #edf4ff);
+  border-color: var(--dp-accent-border, #dce8fb);
+}
+
+.dp-auto-dot {
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  border: 1.5px solid var(--surface, #fff);
+}
+
+.dp-menu {
+  width: 330px;
+  padding: 14px;
+  background: linear-gradient(135deg, var(--dp-accent-soft, #edf4ff), var(--surface, #fff) 75%);
+}
+
+.dp-menu-label {
+  display: block;
+  margin: 0 2px 10px;
+  color: #7d8aa3;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+}
+
+.dp-segments {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  padding: 5px;
+  background: var(--dp-seg-track, rgba(16, 34, 71, 0.06));
+  border-radius: 14px;
+}
+
+.pp-menu .dp-segments button,
+.dp-segments button {
+  justify-content: center;
+  gap: 7px;
+  padding: 10px 6px;
+  color: #6f7c94;
+  background: transparent;
+  border: 0;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.pp-menu .dp-segments button:hover {
+  color: var(--dp-accent-text, #2160ba);
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.pp-menu .dp-segments button.active {
+  color: var(--dp-accent-text, #2160ba);
+  background: var(--dp-seg-active, #fff);
+  box-shadow: 0 3px 10px rgba(16, 34, 71, 0.08);
+}
+
+.pp-menu .dp-auto {
+  margin-top: 10px;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  background: var(--surface, #fff);
+}
+
+.dp-auto > span {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.dp-auto strong {
+  font-size: 12px;
+}
+
+.dp-auto small {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.dp-auto em {
+  padding: 2px 8px;
+  color: #0b7b6c;
+  background: #e3f7f3;
+  border-radius: 20px;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 700;
+}
+
+/* Small "Morning theme" chip next to the date on My shift */
+.daypart-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 10px;
+  padding: 3px 8px;
+  color: var(--dp-accent-text, #2160ba);
+  background: var(--dp-accent-soft, #edf4ff);
+  border: 1px solid var(--dp-accent-border, #dce8fb);
+  border-radius: 20px;
+  font-size: 10px;
+  letter-spacing: 0.4px;
+  vertical-align: middle;
+}
+
+@media (max-width: 720px) {
+  html[data-daypart] .welcome-row,
+  html[data-daypart] .manager-title-row {
+    margin: -8px -10px 0;
+    padding: 12px 10px;
+  }
+
+  .dp-menu {
+    position: fixed;
+    left: 16px;
+    right: 16px;
+    top: 86px;
+    width: auto;
+  }
+}
+
+/* ---- Evening (dark) hand tweaks on top of theme-evening.generated.css ---- */
+
+html[data-daypart="evening"] body {
+  color: var(--text);
+}
+
+html[data-daypart="evening"] .dp-menu-label,
+html[data-daypart="evening"] .pp-menu-label {
+  color: var(--muted);
+}
+
+html[data-daypart="evening"] .pp-menu,
+html[data-daypart="evening"] .wellbeing-panel,
+html[data-daypart="evening"] .member-drawer {
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.55);
+}
+
+html[data-daypart="evening"] .panel-backdrop,
+html[data-daypart="evening"] .drawer-backdrop {
+  background: rgba(3, 4, 14, 0.6);
+}
+
+html[data-daypart="evening"] input,
+html[data-daypart="evening"] select,
+html[data-daypart="evening"] textarea {
+  color: var(--text);
+  background-color: var(--surface);
+  border-color: var(--line);
+}
+
+html[data-daypart="evening"] input::placeholder,
+html[data-daypart="evening"] textarea::placeholder {
+  color: var(--muted);
+}
+
+html[data-daypart="evening"] .dp-auto em {
+  color: #7fe3cf;
+  background: rgba(19, 151, 125, 0.22);
+}

@@ -52,6 +52,9 @@ import {
   initials,
   label,
 } from "./lib/format";
+import { DayTimelineDrawer } from "./components/DayTimeline";
+import { DAYPART_META, ThemeToggle } from "./components/ThemeToggle";
+import { DaypartProvider, useDaypart } from "./lib/daypart";
 import { usePage } from "./lib/nav";
 import type { PageId } from "./lib/nav";
 import { useAction, useAsync } from "./lib/useAsync";
@@ -151,6 +154,17 @@ const schedule = [
     kind: "notes",
   },
 ];
+
+// Rest of the day, shown only in the "Full roster" timeline drawer (also static).
+const afternoonSchedule = [
+  { time: "13:00", duration: "30 min", title: "Lunch break", detail: "Staff lounge · Protected time", kind: "break" },
+  { time: "13:45", duration: "45 min", title: "Patient consultation", detail: "Room 4 · General care", kind: "care" },
+  { time: "14:45", duration: "30 min", title: "Care plan review", detail: "Room 2 · Multidisciplinary review", kind: "review" },
+  { time: "15:30", duration: "15 min", title: "Protected break", detail: "Staff lounge", kind: "break" },
+  { time: "16:00", duration: "30 min", title: "Clinical notes", detail: "Admin time · End-of-day records", kind: "notes" },
+  { time: "16:30", duration: "30 min", title: "Evening handover", detail: "Cedar Ward · Team briefing", kind: "handover" },
+];
+const fullDaySchedule = [...schedule, ...afternoonSchedule];
 
 // ---------------------------------------------------------------------------
 // API -> view-model mapping
@@ -312,6 +326,7 @@ function AppHeader({
           <Download size={16} />
           <span>Download source</span>
         </a>
+        <ThemeToggle />
         <NotificationsMenu navigate={navigate} openDirectChat={openDirectChat} />
         <ProfileMenu page={page} navigate={navigate} />
         <button
@@ -572,6 +587,7 @@ function EmployeeView({
   onCheckIn: () => void;
   navigate: (page: PageId) => void;
 }) {
+  const { daypart, mode } = useDaypart();
   const { user } = useAuth();
   const meId = user?.employee_id ?? "";
   const shifts = useMyShifts(meId);
@@ -581,6 +597,8 @@ function EmployeeView({
   const [demoIndex, setDemoIndex] = useState<number | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [checkInError, setCheckInError] = useState<string | null>(null);
+  const [timelineOpen, setTimelineOpen] = useState(false);
+  const closeTimeline = useCallback(() => setTimelineOpen(false), []);
 
   // Answered-this-session questions stay visible as "Done" until the next load.
   const wellbeingNudges = useMemo(() => {
@@ -632,6 +650,10 @@ function EmployeeView({
         <div>
           <span className="section-kicker">
             {today.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}
+            <span className="daypart-chip" title="Change it from the theme button in the header">
+              {DAYPART_META[daypart].icon(12)}
+              {DAYPART_META[daypart].label} theme{mode === "auto" ? " · auto" : ""}
+            </span>
           </span>
           <h1>{greeting(today)}, {user?.first_name}.</h1>
           <p>You have a steady morning ahead. Your next protected break is at 11:00.</p>
@@ -674,7 +696,7 @@ function EmployeeView({
               <span className="section-kicker">Your day</span>
               <h2>Today’s schedule</h2>
             </div>
-            <button className="secondary-button" onClick={() => navigate("roster")}>
+            <button className="secondary-button" onClick={() => setTimelineOpen(true)}>
               <CalendarDays size={16} />
               Full roster
             </button>
@@ -806,6 +828,13 @@ function EmployeeView({
           }}
         />
       )}
+      <DayTimelineDrawer
+        open={timelineOpen}
+        items={fullDaySchedule}
+        ward="Cedar Ward"
+        onClose={closeTimeline}
+        onOpenRoster={() => navigate("roster")}
+      />
     </main>
   );
 }
@@ -826,6 +855,49 @@ function StatusPill({ level }: { level: RiskLevel }) {
     >
       {level}
     </span>
+  );
+}
+
+/** Contributing factors in the team table: first two, then "+N more" to expand. */
+const FACTORS_PREVIEW = 2;
+
+function FactorsCell({ factors }: { factors: string[] }) {
+  const [expanded, setExpanded] = useState(false);
+  const hidden = factors.length - FACTORS_PREVIEW;
+  const shown = expanded ? factors : factors.slice(0, FACTORS_PREVIEW);
+
+  // The whole row is a button (opens the drawer), so this toggle is a
+  // keyboard-accessible span that stops the click reaching the row.
+  const toggle = (e: React.MouseEvent | React.KeyboardEvent) => {
+    e.stopPropagation();
+    setExpanded((v) => !v);
+  };
+
+  return (
+    <div className={`factors-cell ${expanded ? "expanded" : ""}`}>
+      <strong>{shown[0]}</strong>
+      {shown.slice(1).map((factor) => (
+        <span key={factor}>+ {factor}</span>
+      ))}
+      {hidden > 0 && (
+        <small
+          className="factor-more"
+          role="button"
+          tabIndex={0}
+          aria-expanded={expanded}
+          onClick={toggle}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              toggle(e);
+            }
+          }}
+        >
+          {expanded ? "Show less" : `Show ${hidden} more`}
+          <ChevronDown size={12} />
+        </small>
+      )}
+    </div>
   );
 }
 
@@ -1246,10 +1318,7 @@ function ManagerView({
               </div>
               <div className="risk-cell"><StatusPill level={member.level} /><span className={member.delta < 0 ? "delta down" : "delta"}>{member.delta < 0 ? <ArrowDownRight size={14} /> : <ArrowUpRight size={14} />}{Math.abs(member.delta)}%</span></div>
               <MiniTrend values={member.trend} level={member.level} />
-              <div className="factors-cell">
-                <strong>{member.factors[0]}</strong>
-                {member.factors[1] && <span>+ {member.factors[1]}</span>}
-              </div>
+              <FactorsCell factors={member.factors} />
               <ArrowRight size={18} className="row-arrow" />
             </button>
           ))}
@@ -1335,8 +1404,10 @@ function Shell() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <Shell />
-    </AuthProvider>
+    <DaypartProvider>
+      <AuthProvider>
+        <Shell />
+      </AuthProvider>
+    </DaypartProvider>
   );
 }

@@ -654,3 +654,41 @@
     padding: 24px 18px;
   }
 }
+
+/* Team table: "Show N more" contributing factors toggle */
+.factors-cell .factor-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  width: max-content;
+  margin-top: 5px;
+  padding: 2px 7px;
+  color: var(--dp-accent-text, var(--blue));
+  background: var(--dp-accent-soft, #edf4ff);
+  border-radius: 20px;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.factors-cell .factor-more:hover {
+  filter: brightness(0.97);
+}
+
+.factors-cell .factor-more:focus-visible {
+  outline: 2px solid var(--dp-focus, rgba(23, 105, 232, 0.28));
+  outline-offset: 2px;
+}
+
+.factors-cell .factor-more svg {
+  transition: transform 0.15s ease;
+}
+
+.factors-cell.expanded .factor-more svg {
+  transform: rotate(180deg);
+}
+
+.factors-cell.expanded strong,
+.factors-cell.expanded span {
+  white-space: normal;
+}

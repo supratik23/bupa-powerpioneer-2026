@@ -22,7 +22,7 @@ import { useSocket } from "../lib/useSocket";
 import { InterventionActions, describeIntervention } from "../pages/InterventionsPage";
 import type { PageId } from "../lib/nav";
 
-function useClickOutside(open: boolean, close: () => void) {
+export function useClickOutside(open: boolean, close: () => void) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
