@@ -2,6 +2,10 @@
 
 A Django REST Framework backend for an employee wellbeing platform. It is built on the schema in [DB-Schema.md](DB-Schema.md).
 
+Admin Creds: 
+Useremail: hello@admin.com
+Pass: admin@123
+
 It provides:
 
 - **CRUD APIs** for all 11 tables, with filtering, search, ordering and pagination.
