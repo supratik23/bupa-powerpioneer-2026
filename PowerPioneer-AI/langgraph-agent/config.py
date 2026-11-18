@@ -38,6 +38,8 @@ class Settings(BaseSettings):
     GEMINI_MODEL: str = "gemini-3.8-flash"
     GEMINI_TEMPERATURE: float | None = None  # None -> model default
     GEMINI_MAX_OUTPUT_TOKENS: int | None = 2048
+    # Tried in order when GEMINI_MODEL returns 503 (overloaded) or 429 (rate limited). Empty disables fallback.
+    GEMINI_FALLBACK_MODELS: str = "gemini-3.7-flash,gemini-3.5-flash,gemini-2.5-flash"
 
     # Supabase Postgres (used by SupabaseDBConnectionManager).
     # Set SUPABASE_DB_URL (postgresql://... connection string) OR the individual fields.
@@ -58,6 +60,11 @@ class Settings(BaseSettings):
     SMTP_USE_TLS: bool = True    # STARTTLS (port 587)
     SMTP_USE_SSL: bool = False   # implicit TLS (port 465); overrides SMTP_USE_TLS
     SMTP_TIMEOUT: int = 20
+
+    # ShiftGuard risk model (used by the risk MCP tools)
+    RISK_MODEL_ARTIFACT_DIR: str | None = None   # None -> PowerPioneer-AI/model_artifacts
+    INTERVENTION_DEDUP_DAYS: int = 7             # skip a duplicate intervention of the same type within N days
+    CHECKIN_QUESTION_EXPIRY_HOURS: int = 24      # default lifetime of an agent-generated check-in question
 
 
     class Config:

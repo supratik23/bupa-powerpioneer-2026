@@ -10,7 +10,7 @@ from .mcp_client.agent import agent_router
 from .mcp_client.serverconfig import multi_server_mcp_client
 from .prompts.prompt_file import system_message_for_tooling_agent, system_message_for_generic_agent
 from langchain.agents import create_agent
-from app.services.llm_service import get_openai_llm, get_ollama_llm, get_gemini_llm, get_gemini_llm_with_tools
+from app.services.llm_service import get_openai_llm, get_ollama_llm, get_gemini_llm, get_gemini_llm_with_tools, get_gemini_llm_with_fallbacks
 from .mcp_client.graph import get_agent_graph
 import traceback
 
@@ -42,7 +42,9 @@ async def lifespan(app: FastAPI):
         llm = get_gemini_llm()
 
         # Gemini LLM with the MCP tools bound - used by the tool agent node of the Gemini agent graph
-        llm_with_tools = get_gemini_llm_with_tools(available_tools, llm=llm)
+        # llm_with_tools = get_gemini_llm_with_tools(available_tools, llm=llm)
+        # Same, but falls back to GEMINI_FALLBACK_MODELS when the primary model is overloaded (503) or rate limited (429)
+        llm_with_tools = get_gemini_llm_with_fallbacks(available_tools)
 
         # Create 2 LLM agents - one  with the available tools and other just a generic agent without tools. Both agents have different system prompts to guide their behavior.
         # (used by the previous create_agent based graph `agent_graph()` in graph.py)
