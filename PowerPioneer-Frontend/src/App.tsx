@@ -9,20 +9,20 @@ import {
   CircleHelp,
   ChevronDown,
   Clock3,
-  Coffee,
-  Download,
   Heart,
+  HeartPulse,
   Info,
   Leaf,
   LockKeyhole,
   Menu,
   MessageCircleHeart,
-  MessagesSquare,
-  MoreHorizontal,
+  Moon,
+  PhoneCall,
   RefreshCw,
   ShieldCheck,
   Sparkles,
-  Stethoscope,
+  Sun,
+  Sunrise,
   TrendingUp,
   UserRound,
   UsersRound,
@@ -31,7 +31,6 @@ import {
 import { api, errorMessage } from "./api/client";
 import type {
   Employee,
-  Intervention,
   Question,
   RiskBand,
   RiskSnapshot,
@@ -39,34 +38,38 @@ import type {
   WellbeingSummary,
 } from "./api/types";
 import { AuthProvider, useAuth } from "./auth/AuthContext";
-import { NotificationsMenu, ProfileMenu } from "./components/HeaderMenus";
+import { ProfileMenu } from "./components/HeaderMenus";
 import { Relations } from "./components/Relations";
 import { ErrorNote, Loading, SuccessNote } from "./components/ui";
 import {
   avatarColor,
   featureLabel,
-  formatDate,
   formatHours,
   formatTime,
   greeting,
   initials,
+  isoDate,
   label,
 } from "./lib/format";
+import { RosterTimelineDrawer } from "./components/DayTimeline";
+import { DAYPART_META, ThemeToggle } from "./components/ThemeToggle";
+import { DaypartProvider, useDaypart } from "./lib/daypart";
 import { usePage } from "./lib/nav";
+import { leadingFactors, trendInsight, weeklySeries } from "./lib/teamTrends";
+import type { WeeklyPoint } from "./lib/teamTrends";
+import { dayLabel, shiftFlags, shiftHours, shiftKind, shiftRange, shiftState, shiftTitle } from "./lib/shifts";
 import type { PageId } from "./lib/nav";
 import { useAction, useAsync } from "./lib/useAsync";
 import { useEmployees } from "./lib/useEmployees";
 import AuthPage from "./pages/AuthPage";
-import ChatPage from "./pages/ChatPage";
-import type { Conversation } from "./pages/ChatPage";
-import InterventionsPage, { InterventionActions, describeIntervention } from "./pages/InterventionsPage";
 import LeavePage from "./pages/LeavePage";
 import ProfilePage from "./pages/ProfilePage";
 import RosterPage from "./pages/RosterPage";
 import WellbeingPage from "./pages/WellbeingPage";
 import AdminPage from "./pages/admin/AdminPage";
 
-type Role = "employee" | "manager";
+/** Pages reachable from the main tab switcher in the header. */
+type Role = "employee" | "manager" | "wellbeing";
 type RiskLevel = "Needs attention" | "Keep an eye" | "Doing well";
 type Tone = "blue" | "amber" | "violet" | "teal";
 
@@ -100,57 +103,8 @@ type TeamMember = {
   factors: string[];
   trend: number[];
   color: string;
-  openInterventions: number;
+  drivers: WellbeingSummary["top_drivers"];
 };
-
-// Static, presentational schedule (the backend stores whole shifts, not appointments).
-const schedule = [
-  {
-    time: "08:30",
-    duration: "30 min",
-    title: "Morning handover",
-    detail: "Cedar Ward · Team briefing",
-    kind: "handover",
-    done: true,
-  },
-  {
-    time: "09:15",
-    duration: "45 min",
-    title: "Patient consultation",
-    detail: "Room 4 · General care",
-    kind: "care",
-    done: true,
-  },
-  {
-    time: "10:15",
-    duration: "30 min",
-    title: "Follow-up review",
-    detail: "Room 2 · Care plan review",
-    kind: "review",
-    active: true,
-  },
-  {
-    time: "11:00",
-    duration: "15 min",
-    title: "Protected break",
-    detail: "Staff lounge",
-    kind: "break",
-  },
-  {
-    time: "11:30",
-    duration: "45 min",
-    title: "Patient consultation",
-    detail: "Room 3 · General care",
-    kind: "care",
-  },
-  {
-    time: "12:30",
-    duration: "30 min",
-    title: "Clinical notes",
-    detail: "Admin time",
-    kind: "notes",
-  },
-];
 
 // ---------------------------------------------------------------------------
 // API -> view-model mapping
@@ -233,7 +187,7 @@ function toMember(summary: WellbeingSummary, employee: Employee | undefined): Te
     factors: factors.length ? factors : [score === null ? "Not calculated yet" : "No major risk factors"],
     trend: history.length ? history : [risk],
     color: avatarColor(summary.employee_id),
-    openInterventions: summary.open_interventions,
+    drivers: summary.top_drivers,
   };
 }
 
@@ -281,6 +235,13 @@ function RoleSwitch({
           Team view
         </button>
       )}
+      <button
+        className={role === "wellbeing" ? "active" : ""}
+        onClick={() => setRole("wellbeing")}
+      >
+        <HeartPulse size={16} />
+        My wellbeing
+      </button>
     </div>
   );
 }
@@ -288,15 +249,13 @@ function RoleSwitch({
 function AppHeader({
   page,
   navigate,
-  openDirectChat,
 }: {
   page: PageId;
   navigate: (page: PageId) => void;
-  openDirectChat: (employeeId: string, name: string) => void;
 }) {
   const { isManager } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const role: Role | null = page === "employee" || page === "manager" ? page : null;
+  const role: Role | null = page === "employee" || page === "manager" || page === "wellbeing" ? page : null;
   return (
     <header className="app-header">
       <BrandMark />
@@ -304,15 +263,7 @@ function AppHeader({
         <RoleSwitch role={role} setRole={navigate} showTeam={isManager} />
       </div>
       <div className="header-actions">
-        <a
-          className="download-source"
-          href="/Bupa-ShiftGuard-Source.zip"
-          download="Bupa-ShiftGuard-Source.zip"
-        >
-          <Download size={16} />
-          <span>Download source</span>
-        </a>
-        <NotificationsMenu navigate={navigate} openDirectChat={openDirectChat} />
+        <ThemeToggle />
         <ProfileMenu page={page} navigate={navigate} />
         <button
           className="icon-button mobile-menu"
@@ -363,38 +314,42 @@ function MetricCard({
   );
 }
 
-function ScheduleItem({
-  item,
-}: {
-  item: (typeof schedule)[number];
-}) {
-  const KindIcon =
-    item.kind === "break"
-      ? Coffee
-      : item.kind === "handover"
-        ? UsersRound
-        : item.kind === "notes"
-          ? CalendarDays
-          : Stethoscope;
+/** One of the user's shifts in the "Your upcoming shifts" list (from /shifts/). */
+function ScheduleItem({ shift, now }: { shift: Shift; now: Date }) {
+  const state = shiftState(shift, now);
+  const kind = shiftKind(shift.shift_type);
+  const KindIcon = kind === "night" ? Moon : kind === "oncall" ? PhoneCall : kind === "long" ? Sunrise : Sun;
+  const load = shift.actual_patient_load ?? shift.expected_patient_load;
+  const flags = shiftFlags(shift);
+  const detail = [
+    shiftRange(shift),
+    shift.location,
+    load != null ? `${Number(load)} patients` : null,
+  ].filter(Boolean).join(" · ");
   return (
-    <li className={`schedule-item ${item.active ? "active" : ""}`}>
+    <li className={`schedule-item ${state}`}>
       <div className="schedule-time">
-        <strong>{item.time}</strong>
-        <span>{item.duration}</span>
+        <strong>{dayLabel(shift.shift_start, now)}</strong>
+        <span>{shiftHours(shift)}</span>
       </div>
-      <div className={`schedule-symbol ${item.kind}`}>
-        {item.done ? <Check size={18} /> : <KindIcon size={18} />}
+      <div className={`schedule-symbol ${kind}`}>
+        {state === "done" ? <Check size={18} /> : <KindIcon size={18} />}
       </div>
       <div className="schedule-copy">
         <div>
-          <strong>{item.title}</strong>
-          {item.active && <span className="live-pill">In progress</span>}
+          <strong>{shiftTitle(shift)}</strong>
+          {state === "active" && <span className="live-pill">In progress</span>}
         </div>
-        <span>{item.detail}</span>
+        <span>{detail}</span>
+        {flags.length > 0 && (
+          <div className="schedule-tags">
+            {flags.map((f) => (
+              <em key={f.id} className={`shift-tag ${f.id}`}>{f.text}</em>
+            ))}
+          </div>
+        )}
       </div>
-      <button className="ghost-icon" aria-label={`More options for ${item.title}`}>
-        <MoreHorizontal size={19} />
-      </button>
+      <span aria-hidden="true" />
     </li>
   );
 }
@@ -565,6 +520,71 @@ function shiftSummary(shifts: Shift[]) {
   };
 }
 
+/** The shift the My shift page focuses on: current, else today's next/last, else the next one. */
+function focusShift(shifts: Shift[], now = new Date()) {
+  const todayKey = now.toDateString();
+  const current = shifts.find((s) => shiftState(s, now) === "active") ?? null;
+  const today = shifts.filter((s) => new Date(s.shift_start).toDateString() === todayKey);
+  const upcoming = shifts.find((s) => new Date(s.shift_start) > now) ?? null;
+  const focus = current ?? today.find((s) => new Date(s.shift_start) > now) ?? today[today.length - 1] ?? null;
+  return { current, focus, upcoming };
+}
+
+/** Greeting subtitle built from the real roster. */
+function shiftSubtitle(shifts: Shift[], now = new Date()): string {
+  const { current, focus, upcoming } = focusShift(shifts, now);
+  const where = (s: Shift) => (s.location ? ` at ${s.location}` : "");
+  const changed = (s: Shift) => (s.short_notice_change_flag ? " This shift was changed at short notice." : "");
+  if (current) {
+    return `You're on a ${label(current.shift_type).toLowerCase()} shift${where(current)} until ${formatTime(current.shift_end)}.${changed(current)}`;
+  }
+  if (focus && new Date(focus.shift_start) > now) {
+    return `Your ${label(focus.shift_type).toLowerCase()} shift${where(focus)} starts at ${formatTime(focus.shift_start)}.${changed(focus)}`;
+  }
+  if (upcoming) {
+    return `No more shifts today. Your next shift is ${dayLabel(upcoming.shift_start, now).toLowerCase()} at ${formatTime(upcoming.shift_start)}${where(upcoming)}.`;
+  }
+  return "No upcoming shifts on your roster.";
+}
+
+/** "Patient load" and "Staffing" cards for the focus shift (shift_roster columns). */
+function shiftCards(shift: Shift | null) {
+  if (!shift) {
+    return {
+      load: { value: "—", helper: "No shift today" },
+      staff: { value: "—", helper: "No shift today" },
+    };
+  }
+  const expected = shift.expected_patient_load;
+  const actual = shift.actual_patient_load;
+  const load =
+    expected == null && actual == null
+      ? { value: "Not recorded", helper: "No patient load on this shift" }
+      : {
+          value: `${Number(actual ?? expected)} patients`,
+          helper:
+            actual != null && expected != null
+              ? `Expected ${Number(expected)} · actual ${Number(actual)}`
+              : actual != null
+                ? "Actual load"
+                : "Expected load",
+        };
+  const planned = shift.planned_staff_count;
+  const onShift = shift.actual_staff_count;
+  const staff =
+    planned == null && onShift == null
+      ? { value: "Not recorded", helper: "No staffing data on this shift" }
+      : {
+          value: planned != null && onShift != null ? `${onShift} of ${planned}` : `${onShift ?? planned}`,
+          helper: shift.understaffed_flag
+            ? "Understaffed · flagged on the roster"
+            : planned != null && onShift != null
+              ? "Staff on shift vs planned"
+              : "Planned staff",
+        };
+  return { load, staff };
+}
+
 function EmployeeView({
   onCheckIn,
   navigate,
@@ -572,6 +592,7 @@ function EmployeeView({
   onCheckIn: () => void;
   navigate: (page: PageId) => void;
 }) {
+  const { daypart, mode } = useDaypart();
   const { user } = useAuth();
   const meId = user?.employee_id ?? "";
   const shifts = useMyShifts(meId);
@@ -581,6 +602,8 @@ function EmployeeView({
   const [demoIndex, setDemoIndex] = useState<number | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [checkInError, setCheckInError] = useState<string | null>(null);
+  const [timelineOpen, setTimelineOpen] = useState(false);
+  const closeTimeline = useCallback(() => setTimelineOpen(false), []);
 
   // Answered-this-session questions stay visible as "Done" until the next load.
   const wellbeingNudges = useMemo(() => {
@@ -625,6 +648,8 @@ function EmployeeView({
 
   const today = new Date();
   const summary = shiftSummary(shifts.data ?? []);
+  const cards = shiftCards(focusShift(shifts.data ?? [], today).focus);
+  const upcomingShifts = (shifts.data ?? []).filter((s) => new Date(s.shift_end) > today).slice(0, 6);
 
   return (
     <main className="employee-page page-shell">
@@ -632,9 +657,13 @@ function EmployeeView({
         <div>
           <span className="section-kicker">
             {today.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}
+            <span className="daypart-chip" title="Change it from the theme button in the header">
+              {DAYPART_META[daypart].icon(12)}
+              {DAYPART_META[daypart].label} theme{mode === "auto" ? " · auto" : ""}
+            </span>
           </span>
           <h1>{greeting(today)}, {user?.first_name}.</h1>
-          <p>You have a steady morning ahead. Your next protected break is at 11:00.</p>
+          <p>{shifts.loading ? "Loading your roster…" : shiftSubtitle(shifts.data ?? [], today)}</p>
         </div>
         <div className="shift-status">
           <span className="status-dot" />
@@ -652,17 +681,17 @@ function EmployeeView({
           tone="blue"
         />
         <MetricCard
-          icon={<Coffee size={20} />}
-          label="Next break"
-          value="11:00"
-          helper="In 32 minutes · 15 min protected"
+          icon={<UsersRound size={20} />}
+          label="Patient load"
+          value={shifts.loading ? "…" : cards.load.value}
+          helper={cards.load.helper}
           tone="teal"
         />
         <MetricCard
-          icon={<CalendarDays size={20} />}
-          label="Appointments"
-          value="4 remaining"
-          helper="2 completed · next at 11:30"
+          icon={<UsersRound size={20} />}
+          label="Staffing"
+          value={shifts.loading ? "…" : cards.staff.value}
+          helper={cards.staff.helper}
           tone="violet"
         />
       </section>
@@ -671,19 +700,26 @@ function EmployeeView({
         <section className="surface schedule-surface">
           <div className="surface-heading">
             <div>
-              <span className="section-kicker">Your day</span>
-              <h2>Today’s schedule</h2>
+              <span className="section-kicker">Your roster</span>
+              <h2>Upcoming shifts</h2>
             </div>
-            <button className="secondary-button" onClick={() => navigate("roster")}>
+            <button className="secondary-button" onClick={() => setTimelineOpen(true)}>
               <CalendarDays size={16} />
               Full roster
             </button>
           </div>
-          <ol className="schedule-list">
-            {schedule.map((item) => (
-              <ScheduleItem key={`${item.time}-${item.title}`} item={item} />
-            ))}
-          </ol>
+          <ErrorNote message={shifts.error} onRetry={shifts.reload} />
+          {shifts.loading ? (
+            <Loading text="Loading your shifts…" />
+          ) : upcomingShifts.length === 0 ? (
+            <p className="schedule-empty">No upcoming shifts on your roster.</p>
+          ) : (
+            <ol className="schedule-list">
+              {upcomingShifts.map((shift) => (
+                <ScheduleItem key={shift.shift_id} shift={shift} now={today} />
+              ))}
+            </ol>
+          )}
         </section>
 
         <aside className="employee-side">
@@ -806,6 +842,14 @@ function EmployeeView({
           }}
         />
       )}
+      <RosterTimelineDrawer
+        open={timelineOpen}
+        shifts={shifts.data ?? []}
+        loading={shifts.loading}
+        error={shifts.error}
+        onClose={closeTimeline}
+        onOpenRoster={() => navigate("roster")}
+      />
     </main>
   );
 }
@@ -829,6 +873,49 @@ function StatusPill({ level }: { level: RiskLevel }) {
   );
 }
 
+/** Contributing factors in the team table: first two, then "+N more" to expand. */
+const FACTORS_PREVIEW = 2;
+
+function FactorsCell({ factors }: { factors: string[] }) {
+  const [expanded, setExpanded] = useState(false);
+  const hidden = factors.length - FACTORS_PREVIEW;
+  const shown = expanded ? factors : factors.slice(0, FACTORS_PREVIEW);
+
+  // The whole row is a button (opens the drawer), so this toggle is a
+  // keyboard-accessible span that stops the click reaching the row.
+  const toggle = (e: React.MouseEvent | React.KeyboardEvent) => {
+    e.stopPropagation();
+    setExpanded((v) => !v);
+  };
+
+  return (
+    <div className={`factors-cell ${expanded ? "expanded" : ""}`}>
+      <strong>{shown[0]}</strong>
+      {shown.slice(1).map((factor) => (
+        <span key={factor}>+ {factor}</span>
+      ))}
+      {hidden > 0 && (
+        <small
+          className="factor-more"
+          role="button"
+          tabIndex={0}
+          aria-expanded={expanded}
+          onClick={toggle}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              toggle(e);
+            }
+          }}
+        >
+          {expanded ? "Show less" : `Show ${hidden} more`}
+          <ChevronDown size={12} />
+        </small>
+      )}
+    </div>
+  );
+}
+
 function MiniTrend({ values, level }: { values: number[]; level: RiskLevel }) {
   const series = values.length > 1 ? values : [values[0] ?? 0, values[0] ?? 0];
   const points = series
@@ -845,24 +932,37 @@ function MiniTrend({ values, level }: { values: number[]; level: RiskLevel }) {
   );
 }
 
-function OverviewChart() {
-  const lines = {
-    workload: [39, 44, 46, 51, 55, 58, 64, 66, 72, 75, 78, 82],
-    wellbeing: [74, 71, 75, 68, 67, 61, 63, 55, 51, 49, 44, 40],
-  };
-  const toPoints = (values: number[]) =>
-    values
-      .map((v, i) => `${(i / (values.length - 1)) * 620 + 10},${178 - v * 1.55}`)
+/** Team trend chart: weekly averages of the team's risk snapshots. */
+function OverviewChart({ series, loading }: { series: WeeklyPoint[]; loading: boolean }) {
+  const values = series.flatMap((p) => [p.wellbeing, p.workload]).filter((v): v is number => v != null);
+  if (loading) return <div className="chart-wrap"><Loading text="Loading team trend…" /></div>;
+  if (values.length === 0) {
+    return <div className="chart-wrap"><p className="pp-muted">No wellbeing snapshots for this period yet.</p></div>;
+  }
+  // Shared y-scale with a little padding so both lines stay inside the plot.
+  const lo = Math.max(0, Math.floor(Math.min(...values) - 5));
+  const hi = Math.ceil(Math.max(...values) + 5);
+  const x = (i: number) => (series.length > 1 ? (i / (series.length - 1)) * 620 + 10 : 320);
+  const y = (v: number) => 170 - ((v - lo) / Math.max(1, hi - lo)) * 140;
+  const toPoints = (key: "wellbeing" | "workload") =>
+    series
+      .map((p, i) => (p[key] == null ? null : `${x(i)},${y(p[key]!)}`))
+      .filter(Boolean)
       .join(" ");
+  const workload = toPoints("workload");
+  const firstX = series.findIndex((p) => p.workload != null);
+  const lastX = series.length - 1 - [...series].reverse().findIndex((p) => p.workload != null);
+  const step = Math.max(1, Math.ceil(series.length / 6));
+  const fmt = (d: Date) => d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
   return (
     <div className="chart-wrap">
       <div className="chart-legend">
-        <span><i className="workload-dot" /> Workload pressure</span>
-        <span><i className="wellbeing-dot" /> Wellbeing signal</span>
+        <span><i className="workload-dot" /> Workload (hours vs contract, %)</span>
+        <span><i className="wellbeing-dot" /> Wellbeing score</span>
       </div>
-      <svg viewBox="0 0 640 190" role="img" aria-label="Team workload pressure rising as aggregated wellbeing signal falls over twelve weeks">
-        {[30, 70, 110, 150].map((y) => (
-          <line key={y} x1="10" y1={y} x2="630" y2={y} className="grid-line" />
+      <svg viewBox="0 0 640 190" role="img" aria-label="Weekly team workload and average wellbeing score">
+        {[30, 70, 110, 150].map((gy) => (
+          <line key={gy} x1="10" y1={gy} x2="630" y2={gy} className="grid-line" />
         ))}
         <defs>
           <linearGradient id="area-fill" x1="0" y1="0" x2="0" y2="1">
@@ -870,15 +970,30 @@ function OverviewChart() {
             <stop offset="100%" stopColor="#2764e7" stopOpacity="0" />
           </linearGradient>
         </defs>
-        <polygon
-          points={`10,178 ${toPoints(lines.workload)} 630,178`}
-          fill="url(#area-fill)"
-        />
-        <polyline className="chart-line workload-line" points={toPoints(lines.workload)} />
-        <polyline className="chart-line wellbeing-line" points={toPoints(lines.wellbeing)} />
+        {workload && firstX >= 0 && (
+          <polygon points={`${x(firstX)},178 ${workload} ${x(lastX)},178`} fill="url(#area-fill)" />
+        )}
+        <polyline className="chart-line workload-line" points={workload} />
+        <polyline className="chart-line wellbeing-line" points={toPoints("wellbeing")} />
+        {series.map((p, i) => (
+          <g key={i}>
+            {p.workload != null && (
+              <circle cx={x(i)} cy={y(p.workload)} r="3" className="chart-point workload">
+                <title>{`Week of ${fmt(p.weekStart)}: workload ${p.workload.toFixed(0)}%`}</title>
+              </circle>
+            )}
+            {p.wellbeing != null && (
+              <circle cx={x(i)} cy={y(p.wellbeing)} r="3" className="chart-point wellbeing">
+                <title>{`Week of ${fmt(p.weekStart)}: wellbeing ${p.wellbeing.toFixed(0)}`}</title>
+              </circle>
+            )}
+          </g>
+        ))}
       </svg>
       <div className="chart-axis">
-        <span>Wk 1</span><span>Wk 3</span><span>Wk 5</span><span>Wk 7</span><span>Wk 9</span><span>Wk 12</span>
+        {series.map((p, i) =>
+          i % step === 0 || i === series.length - 1 ? <span key={i}>{fmt(p.weekStart)}</span> : null,
+        )}
       </div>
     </div>
   );
@@ -909,12 +1024,10 @@ function TeamMemberDrawer({
   member,
   onClose,
   onChanged,
-  openDirectChat,
 }: {
   member: TeamMember | null;
   onClose: () => void;
   onChanged: () => void;
-  openDirectChat: (employeeId: string, name: string) => void;
 }) {
   if (!member) return null;
   return (
@@ -923,7 +1036,6 @@ function TeamMemberDrawer({
       member={member}
       onClose={onClose}
       onChanged={onChanged}
-      openDirectChat={openDirectChat}
     />
   );
 }
@@ -932,38 +1044,15 @@ function TeamMemberDrawerBody({
   member,
   onClose,
   onChanged,
-  openDirectChat,
 }: {
   member: TeamMember;
   onClose: () => void;
   onChanged: () => void;
-  openDirectChat: (employeeId: string, name: string) => void;
 }) {
-  const { user } = useAuth();
-  const { nameOf } = useEmployees();
   const stats = useMemberStats(member.id);
   const employee = useAsync(() => api.get<Employee>(`/employees/${member.id}/`), [member.id]);
-  const interventions = useAsync(
-    () => api.list<Intervention>("/interventions/", { employee: member.id, ordering: "-triggered_at" }),
-    [member.id],
-  );
   const action = useAction();
   const [notice, setNotice] = useState<string | null>(null);
-  const open = (interventions.data ?? []).filter((iv) => iv.action_status === "PENDING" || iv.action_status === "IN_PROGRESS");
-
-  const planConversation = () =>
-    action.run(async () => {
-      await api.post<Intervention>("/interventions/", {
-        employee_id: member.id,
-        target_employee_id: user?.employee_id,
-        action_type: "SCHEDULE_CHECKIN",
-        action_status: "PENDING",
-        action_payload: { note: "Supportive conversation planned from Team view" },
-      });
-      setNotice("Supportive conversation added to your actions.");
-      await interventions.reload();
-      onChanged();
-    });
 
   const recalculate = () =>
     action.run(async () => {
@@ -1030,43 +1119,9 @@ function TeamMemberDrawerBody({
         </div>
         <ErrorNote message={action.error} />
         <SuccessNote message={notice} />
-        <button className="primary-button full" disabled={action.busy} onClick={() => void planConversation()}>
-          Plan a supportive conversation
-          <ArrowRight size={17} />
+        <button className="secondary-button full" disabled={action.busy} onClick={() => void recalculate()}>
+          <RefreshCw size={15} /> Recalculate score
         </button>
-        <div className="pp-inline-actions" style={{ marginTop: 10 }}>
-          <button className="secondary-button" onClick={() => openDirectChat(member.id, member.name)}>
-            <MessagesSquare size={15} /> Message
-          </button>
-          <button className="secondary-button" disabled={action.busy} onClick={() => void recalculate()}>
-            <RefreshCw size={15} /> Recalculate score
-          </button>
-        </div>
-
-        <div className="drawer-section" style={{ marginTop: 16 }}>
-          <span className="section-kicker">Open support actions</span>
-          <h3>Interventions ({open.length})</h3>
-          {interventions.loading ? (
-            <Loading />
-          ) : open.length === 0 ? (
-            <p className="pp-muted" style={{ marginTop: 10 }}>No open actions.</p>
-          ) : (
-            <ul className="factor-list">
-              {open.map((iv, i) => (
-                <li key={iv.intervention_id}>
-                  <span>{i + 1}</span>
-                  <div style={{ flex: 1 }}>
-                    <strong>{label(iv.action_type)} · {label(iv.action_status)}</strong>
-                    <small>{describeIntervention(iv, nameOf)} Assigned to {nameOf(iv.target_employee_id)} · {formatDate(iv.triggered_at)}</small>
-                    <div style={{ marginTop: 6 }}>
-                      <InterventionActions iv={iv} onChanged={() => void interventions.reload()} />
-                    </div>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
 
         {employee.data && (
           <div style={{ marginTop: 16 }}>
@@ -1078,18 +1133,23 @@ function TeamMemberDrawerBody({
   );
 }
 
-function ManagerView({
-  recentUpdate,
-  openDirectChat,
-}: {
-  recentUpdate: boolean;
-  openDirectChat: (employeeId: string, name: string) => void;
-}) {
+function ManagerView({ recentUpdate }: { recentUpdate: boolean }) {
   const { user } = useAuth();
   const { byId } = useEmployees();
   const team = useAsync(() => api.get<WellbeingSummary[]>("/wellbeing/team/"), []);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [filter, setFilter] = useState<"All" | "Needs attention" | "Keep an eye">("All");
+  const [weeks, setWeeks] = useState(12);
+  const [department, setDepartment] = useState("All");
+  const snapshots = useAsync(
+    () =>
+      api.listAll<RiskSnapshot>("/risk-snapshots/", {
+        snapshot_date__gte: isoDate(new Date(Date.now() - weeks * 7 * 86400000)),
+        is_training_record: false,
+        ordering: "snapshot_date",
+      }),
+    [weeks],
+  );
 
   const members = useMemo(
     () =>
@@ -1099,18 +1159,35 @@ function ManagerView({
         .sort((a, b) => b.risk - a.risk),
     [team.data, byId, user?.employee_id],
   );
-  const visibleMembers = members.filter(
+  const departments = useMemo(
+    () => [...new Set(members.map((m) => m.department).filter((d): d is string => Boolean(d)))].sort(),
+    [members],
+  );
+  const teamMembers = useMemo(
+    () => members.filter((m) => department === "All" || m.department === department),
+    [members, department],
+  );
+  const visibleMembers = teamMembers.filter(
     (member) => filter === "All" || member.level === filter,
   );
+  const series = useMemo(() => {
+    const ids = new Set(teamMembers.map((m) => m.id));
+    return weeklySeries((snapshots.data ?? []).filter((snap) => ids.has(snap.employee_id)), weeks);
+  }, [snapshots.data, teamMembers, weeks]);
+  const insight = trendInsight(series);
+  const factors = leadingFactors(teamMembers.map((m) => m.drivers), series);
   const selected = members.find((m) => m.id === selectedId) ?? null;
 
   const counts = useMemo(
     () => ({
-      high: members.filter((member) => member.level === "Needs attention").length,
-      watch: members.filter((member) => member.level === "Keep an eye").length,
-      well: members.filter((member) => member.level === "Doing well").length,
+      high: teamMembers.filter((member) => member.level === "Needs attention").length,
+      watch: teamMembers.filter((member) => member.level === "Keep an eye").length,
+      well: teamMembers.filter((member) => member.level === "Doing well").length,
+      highRising: teamMembers.filter((m) => m.level === "Needs attention" && m.delta > 0).length,
+      watchRising: teamMembers.filter((m) => m.level === "Keep an eye" && m.delta > 0).length,
+      improving: teamMembers.filter((m) => m.delta < 0).length,
     }),
-    [members],
+    [teamMembers],
   );
 
   return (
@@ -1122,12 +1199,25 @@ function ManagerView({
           <p>Understand changing patterns early, without exposing private responses.</p>
         </div>
         <div className="manager-controls">
-          <button className="secondary-button">
-            Last 12 weeks <ChevronDown size={15} />
-          </button>
-          <button className="secondary-button" onClick={() => void team.reload()}>
-            All teams <ChevronDown size={15} />
-          </button>
+          <label className="secondary-button select-pill">
+            <span className="sr-only">Time range</span>
+            <select value={weeks} onChange={(e) => setWeeks(Number(e.target.value))}>
+              <option value={4}>Last 4 weeks</option>
+              <option value={12}>Last 12 weeks</option>
+              <option value={26}>Last 26 weeks</option>
+            </select>
+            <ChevronDown size={15} />
+          </label>
+          <label className="secondary-button select-pill">
+            <span className="sr-only">Team</span>
+            <select value={department} onChange={(e) => setDepartment(e.target.value)}>
+              <option value="All">All teams</option>
+              {departments.map((d) => (
+                <option key={d} value={d}>{d}</option>
+              ))}
+            </select>
+            <ChevronDown size={15} />
+          </label>
         </div>
       </section>
 
@@ -1146,22 +1236,29 @@ function ManagerView({
         <article className="summary-card red">
           <div className="summary-icon"><Activity size={20} /></div>
           <div><span>Needs attention</span><strong>{counts.high}</strong><small>People with rising indicators</small></div>
-          <span className="summary-change"><ArrowUpRight size={14} /> 1 this week</span>
+          {counts.highRising > 0 ? (
+            <span className="summary-change"><ArrowUpRight size={14} /> {counts.highRising} rising</span>
+          ) : (
+            <span className="summary-change neutral">No change</span>
+          )}
         </article>
         <article className="summary-card amber">
           <div className="summary-icon"><CircleHelp size={20} /></div>
           <div><span>Keep an eye</span><strong>{counts.watch}</strong><small>Patterns worth monitoring</small></div>
-          <span className="summary-change neutral">No change</span>
+          {counts.watchRising > 0 ? (
+            <span className="summary-change"><ArrowUpRight size={14} /> {counts.watchRising} rising</span>
+          ) : (
+            <span className="summary-change neutral">No change</span>
+          )}
         </article>
         <article className="summary-card green">
           <div className="summary-icon"><Leaf size={20} /></div>
           <div><span>Doing well</span><strong>{counts.well}</strong><small>Stable or improving patterns</small></div>
-          <span className="summary-change positive"><ArrowUpRight size={14} /> 2 improving</span>
-        </article>
-        <article className="summary-card blue">
-          <div className="summary-icon"><MessageCircleHeart size={20} /></div>
-          <div><span>Check-in participation</span><strong>84%</strong><small>Rolling 4-week response rate</small></div>
-          <span className="summary-change positive"><ArrowUpRight size={14} /> 6%</span>
+          {counts.improving > 0 ? (
+            <span className="summary-change positive"><ArrowDownRight size={14} /> {counts.improving} improving</span>
+          ) : (
+            <span className="summary-change neutral">No change</span>
+          )}
         </article>
       </section>
 
@@ -1172,37 +1269,45 @@ function ManagerView({
               <span className="section-kicker">Signal movement</span>
               <h2>Team trend</h2>
             </div>
-            <div className="insight-chip"><Sparkles size={14} /> AI insight</div>
+            <div className="insight-chip"><Sparkles size={14} /> Auto insight</div>
           </div>
-          <OverviewChart />
-          <div className="chart-insight">
-            <TrendingUp size={19} />
-            <p>
-              <strong>Workload pressure is increasing.</strong> Overtime has risen
-              for three consecutive weeks while break compliance has declined.
-            </p>
-          </div>
+          <ErrorNote message={snapshots.error} onRetry={snapshots.reload} />
+          <OverviewChart series={series} loading={snapshots.loading} />
+          {insight && (
+            <div className="chart-insight">
+              <TrendingUp size={19} />
+              <p>
+                <strong>{insight.title}</strong> {insight.text}
+              </p>
+            </div>
+          )}
         </section>
         <section className="surface factor-surface">
           <div className="surface-heading">
             <div>
-              <span className="section-kicker">This week</span>
+              <span className="section-kicker">Across the team</span>
               <h2>Leading factors</h2>
             </div>
             <Info size={18} />
           </div>
           <div className="factor-bars">
-            {[
-              ["Overtime hours", 78, "+12%", "red"],
-              ["Consecutive shifts", 64, "+8%", "amber"],
-              ["Missed breaks", 51, "+6%", "violet"],
-              ["Low leave balance", 33, "-2%", "blue"],
-            ].map(([label, width, change, tone]) => (
-              <div className="factor-bar-row" key={label}>
-                <div><span>{label}</span><strong className={String(change).startsWith("-") ? "down" : ""}>{change}</strong></div>
-                <div className="bar-track"><i className={String(tone)} style={{ width: `${width}%` }} /></div>
-              </div>
-            ))}
+            {factors.length === 0 ? (
+              <p className="pp-muted">No risk-increasing factors recorded for this team yet.</p>
+            ) : (
+              factors.map((f, i) => (
+                <div className="factor-bar-row" key={f.label}>
+                  <div>
+                    <span>{f.label}</span>
+                    <strong className={f.change != null && f.change < 0 ? "down" : ""}>
+                      {f.change != null ? `${f.change > 0 ? "+" : ""}${f.change}%` : `${f.count} of ${teamMembers.length}`}
+                    </strong>
+                  </div>
+                  <div className="bar-track">
+                    <i className={["red", "amber", "violet", "blue"][i % 4]} style={{ width: `${Math.max(4, f.share)}%` }} />
+                  </div>
+                </div>
+              ))
+            )}
           </div>
           <div className="privacy-inline">
             <ShieldCheck size={18} />
@@ -1246,10 +1351,7 @@ function ManagerView({
               </div>
               <div className="risk-cell"><StatusPill level={member.level} /><span className={member.delta < 0 ? "delta down" : "delta"}>{member.delta < 0 ? <ArrowDownRight size={14} /> : <ArrowUpRight size={14} />}{Math.abs(member.delta)}%</span></div>
               <MiniTrend values={member.trend} level={member.level} />
-              <div className="factors-cell">
-                <strong>{member.factors[0]}</strong>
-                {member.factors[1] && <span>+ {member.factors[1]}</span>}
-              </div>
+              <FactorsCell factors={member.factors} />
               <ArrowRight size={18} className="row-arrow" />
             </button>
           ))}
@@ -1277,7 +1379,6 @@ function ManagerView({
         member={selected}
         onClose={() => setSelectedId(null)}
         onChanged={() => void team.reload()}
-        openDirectChat={openDirectChat}
       />
     </main>
   );
@@ -1290,15 +1391,6 @@ function Shell() {
   const { user, loading, isManager, isStaff } = useAuth();
   const { page, navigate } = usePage();
   const [recentUpdate, setRecentUpdate] = useState(false);
-  const [chatTarget, setChatTarget] = useState<Conversation | null>(null);
-
-  const openDirectChat = useCallback(
-    (employeeId: string, name: string) => {
-      setChatTarget({ kind: "direct", id: employeeId, title: name });
-      navigate("chat");
-    },
-    [navigate],
-  );
 
   if (loading) {
     return (
@@ -1318,16 +1410,14 @@ function Shell() {
 
   return (
     <div className="app">
-      <AppHeader page={current} navigate={navigate} openDirectChat={openDirectChat} />
+      <AppHeader page={current} navigate={navigate} />
       {current === "employee" && <EmployeeView onCheckIn={() => setRecentUpdate(true)} navigate={navigate} />}
-      {current === "manager" && <ManagerView recentUpdate={recentUpdate} openDirectChat={openDirectChat} />}
+      {current === "manager" && <ManagerView recentUpdate={recentUpdate} />}
       {current === "profile" && <ProfilePage />}
       {current === "wellbeing" && <WellbeingPage />}
       {current === "roster" && <RosterPage key="roster" />}
       {current === "team-roster" && <RosterPage key="team-roster" initialTab="shifts" />}
       {current === "leave" && <LeavePage />}
-      {current === "interventions" && <InterventionsPage />}
-      {current === "chat" && <ChatPage key={chatTarget ? `${chatTarget.kind}-${chatTarget.id}` : "chat"} initial={chatTarget} />}
       {current === "admin" && <AdminPage />}
     </div>
   );
@@ -1335,8 +1425,10 @@ function Shell() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <Shell />
-    </AuthProvider>
+    <DaypartProvider>
+      <AuthProvider>
+        <Shell />
+      </AuthProvider>
+    </DaypartProvider>
   );
 }

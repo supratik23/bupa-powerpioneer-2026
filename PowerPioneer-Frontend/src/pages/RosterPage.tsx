@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
-import { Plus } from "lucide-react";
+import { CalendarDays, List, Plus } from "lucide-react";
 import { api } from "../api/client";
 import { ABSENCE_TYPES, ATTENDANCE_STATUSES, SHIFT_TYPES } from "../api/types";
 import type { AbsenceType, Attendance, AttendanceStatus, Employee, Shift, ShiftType } from "../api/types";
@@ -8,6 +8,9 @@ import { useAuth } from "../auth/AuthContext";
 import { formatDate, formatTime, fromLocalInput, isoDate, label, num, toLocalInput } from "../lib/format";
 import { useAction, useAsync } from "../lib/useAsync";
 import { useEmployees } from "../lib/useEmployees";
+import { shiftKind } from "../lib/shifts";
+import { RosterCalendar, TeamCalendar, monthGrid } from "../components/RosterCalendar";
+import type { CalendarItem } from "../components/RosterCalendar";
 import {
   AsyncBlock,
   CheckField,
@@ -290,6 +293,57 @@ function AttendanceEditor({
 }
 
 // ---------------------------------------------------------------------------
+// list / calendar view preference (per browser)
+// ---------------------------------------------------------------------------
+type ViewMode = "list" | "calendar";
+const VIEW_KEY = "pp-roster-view";
+
+function readView(): ViewMode {
+  try {
+    return window.localStorage.getItem(VIEW_KEY) === "calendar" ? "calendar" : "list";
+  } catch {
+    return "list";
+  }
+}
+
+function saveView(view: ViewMode) {
+  try {
+    window.localStorage.setItem(VIEW_KEY, view);
+  } catch {
+    // storage unavailable: the choice just won't persist
+  }
+}
+
+const attendanceChipTone: Record<AttendanceStatus, string> = {
+  PRESENT: "present",
+  LATE: "late",
+  ABSENT: "absent",
+  ON_LEAVE: "leave",
+};
+
+const attendanceShort: Record<AttendanceStatus, string> = {
+  PRESENT: "In",
+  LATE: "Late",
+  ABSENT: "Off",
+  ON_LEAVE: "Leave",
+};
+
+const SHIFT_LEGEND = [
+  { tone: "day", label: "Day / early / late" },
+  { tone: "long", label: "Long day" },
+  { tone: "night", label: "Night" },
+  { tone: "oncall", label: "On call" },
+];
+const ATTENDANCE_LEGEND = [
+  { tone: "present", label: "Present" },
+  { tone: "late", label: "Late" },
+  { tone: "absent", label: "Absent" },
+  { tone: "leave", label: "On leave" },
+];
+
+const firstName = (name: string) => name.split(" ")[0] ?? name;
+
+// ---------------------------------------------------------------------------
 // page
 // ---------------------------------------------------------------------------
 export default function RosterPage({ initialTab = "my-shifts" }: { initialTab?: TabId }) {
@@ -299,6 +353,8 @@ export default function RosterPage({ initialTab = "my-shifts" }: { initialTab?: 
   const [employeeFilter, setEmployeeFilter] = useState("");
   const [from, setFrom] = useState(() => isoDate(new Date(Date.now() - 14 * 86400000)));
   const [to, setTo] = useState(() => isoDate(new Date(Date.now() + 28 * 86400000)));
+  const [view, setViewState] = useState<ViewMode>(readView);
+  const [month, setMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   const [editingShift, setEditingShift] = useState<Shift | "new" | null>(null);
   const [editingAttendance, setEditingAttendance] = useState<Attendance | "new" | null>(null);
   const action = useAction();
@@ -308,18 +364,33 @@ export default function RosterPage({ initialTab = "my-shifts" }: { initialTab?: 
   const mine = tab === "my-shifts" || tab === "my-attendance";
   const employee = mine ? meId : employeeFilter;
   const isShifts = tab === "my-shifts" || tab === "shifts";
+  const calendar = view === "calendar";
+  const setView = (next: ViewMode) => {
+    setViewState(next);
+    saveView(next);
+  };
+
+  // Calendar view loads the whole visible month grid; list view uses the date inputs.
+  const grid = monthGrid(month);
+  // Team calendar rows: the people being managed (or just the filtered one), never the manager.
+  const people = managed
+    .filter((e) => e.employee_id !== meId && (!employeeFilter || e.employee_id === employeeFilter))
+    .map((e) => ({ id: e.employee_id, name: e.full_name, role: e.job_role }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const rangeFrom = calendar ? isoDate(grid.start) : from;
+  const rangeTo = calendar ? isoDate(grid.end) : to;
 
   const shifts = useAsync(
     () =>
       isShifts
         ? api.listAll<Shift>("/shifts/", {
             employee: employee || undefined,
-            shift_start__gte: new Date(`${from}T00:00:00`).toISOString(),
-            shift_start__lte: new Date(`${to}T23:59:59`).toISOString(),
+            shift_start__gte: new Date(`${rangeFrom}T00:00:00`).toISOString(),
+            shift_start__lte: new Date(`${rangeTo}T23:59:59`).toISOString(),
             ordering: "shift_start",
           })
         : Promise.resolve([] as Shift[]),
-    [tab, employee, from, to],
+    [tab, employee, rangeFrom, rangeTo],
   );
 
   const attendance = useAsync(
@@ -327,12 +398,12 @@ export default function RosterPage({ initialTab = "my-shifts" }: { initialTab?: 
       !isShifts
         ? api.listAll<Attendance>("/attendance/", {
             employee: employee || undefined,
-            attendance_date__gte: from,
-            attendance_date__lte: to,
+            attendance_date__gte: rangeFrom,
+            attendance_date__lte: rangeTo,
             ordering: "-attendance_date",
           })
         : Promise.resolve([] as Attendance[]),
-    [tab, employee, from, to],
+    [tab, employee, rangeFrom, rangeTo],
   );
 
   // Team tabs: never list the manager's own rows.
@@ -353,6 +424,74 @@ export default function RosterPage({ initialTab = "my-shifts" }: { initialTab?: 
       await attendance.reload();
     });
   };
+
+  const shiftItems: CalendarItem<Shift>[] = shiftRows.map((s) => ({
+    id: s.shift_id,
+    day: new Date(s.shift_start),
+    chip: mine
+      ? `${formatTime(s.shift_start)} ${label(s.shift_type)}`
+      : `${formatTime(s.shift_start)} ${firstName(nameOf(s.employee_id))}`,
+    tone: shiftKind(s.shift_type),
+    alert: s.understaffed_flag,
+    personId: s.employee_id,
+    short: formatTime(s.shift_start),
+    row: s,
+  }));
+  const attendanceItems: CalendarItem<Attendance>[] = attendanceRows.map((a) => ({
+    id: a.attendance_id,
+    day: new Date(`${a.attendance_date}T00:00:00`),
+    chip: mine
+      ? `${label(a.attendance_status)}${a.late_minutes ? ` ${a.late_minutes}m` : ""}`
+      : `${firstName(nameOf(a.employee_id))} · ${label(a.attendance_status)}`,
+    tone: attendanceChipTone[a.attendance_status],
+    personId: a.employee_id,
+    short: a.attendance_status === "LATE" && a.late_minutes ? `${a.late_minutes}m` : attendanceShort[a.attendance_status],
+    row: a,
+  }));
+
+  const shiftDetail = (s: Shift) => (
+    <>
+      <div>
+        {!mine && <strong>{nameOf(s.employee_id)}</strong>}
+        <span>
+          {formatTime(s.shift_start)}–{formatTime(s.shift_end)} · {num(s.planned_hours)}h planned
+          {s.actual_hours !== null ? ` · ${num(s.actual_hours)}h actual` : ""}
+          {s.location ? ` · ${s.location}` : ""}
+        </span>
+        {shiftFlags(s) !== "—" && <small>{shiftFlags(s)}</small>}
+      </div>
+      <Pill tone={s.shift_type === "NIGHT" ? "info" : "neutral"}>{label(s.shift_type)}</Pill>
+      {!mine && (
+        <div className="pp-inline-actions">
+          <button className="secondary-button small" onClick={() => setEditingShift(s)}>Edit</button>
+          <button className="secondary-button small danger" disabled={action.busy} onClick={() => removeShift(s)}>
+            Delete
+          </button>
+        </div>
+      )}
+    </>
+  );
+  const attendanceDetail = (a: Attendance) => (
+    <>
+      <div>
+        {!mine && <strong>{nameOf(a.employee_id)}</strong>}
+        <span>
+          {a.late_minutes ? `${a.late_minutes} min late` : "On time"}
+          {a.absence_type ? ` · ${label(a.absence_type)}` : ""}
+        </span>
+        {a.notes && <small>{a.notes}</small>}
+      </div>
+      <Pill tone={attendanceTone[a.attendance_status]}>{label(a.attendance_status)}</Pill>
+      {!mine && (
+        <div className="pp-inline-actions">
+          <button className="secondary-button small" onClick={() => setEditingAttendance(a)}>Edit</button>
+          <button className="secondary-button small danger" disabled={action.busy} onClick={() => removeAttendance(a)}>
+            Delete
+          </button>
+        </div>
+      )}
+    </>
+  );
 
   const tabs: Array<{ id: TabId; label: string }> = [
     { id: "my-shifts", label: "My shifts" },
@@ -390,6 +529,14 @@ export default function RosterPage({ initialTab = "my-shifts" }: { initialTab?: 
         title={isShifts ? "Shifts" : "Attendance records"}
         actions={
           <>
+            <div className="filter-tabs view-toggle" role="group" aria-label="View">
+              <button className={!calendar ? "active" : ""} aria-pressed={!calendar} onClick={() => setView("list")}>
+                <List size={14} /> List
+              </button>
+              <button className={calendar ? "active" : ""} aria-pressed={calendar} onClick={() => setView("calendar")}>
+                <CalendarDays size={14} /> Calendar
+              </button>
+            </div>
             {!mine && (
               <select
                 className="secondary-button"
@@ -405,13 +552,67 @@ export default function RosterPage({ initialTab = "my-shifts" }: { initialTab?: 
                 ))}
               </select>
             )}
-            <input className="secondary-button" type="date" value={from} onChange={(e) => setFrom(e.target.value)} aria-label="From" />
-            <input className="secondary-button" type="date" value={to} onChange={(e) => setTo(e.target.value)} aria-label="To" />
+            {!calendar && (
+              <>
+                <input className="secondary-button" type="date" value={from} onChange={(e) => setFrom(e.target.value)} aria-label="From" />
+                <input className="secondary-button" type="date" value={to} onChange={(e) => setTo(e.target.value)} aria-label="To" />
+              </>
+            )}
           </>
         }
       >
         <ErrorNote message={action.error} />
-        {isShifts ? (
+        {calendar && !mine ? (
+          isShifts ? (
+            <AsyncBlock loading={shifts.loading && !shifts.data} error={shifts.error} onRetry={shifts.reload}>
+              <TeamCalendar
+                month={month}
+                onMonthChange={setMonth}
+                people={people}
+                items={shiftItems}
+                renderDetail={shiftDetail}
+                emptyDay="No shift for this person on this day."
+                legend={SHIFT_LEGEND}
+              />
+            </AsyncBlock>
+          ) : (
+            <AsyncBlock loading={attendance.loading && !attendance.data} error={attendance.error} onRetry={attendance.reload}>
+              <TeamCalendar
+                month={month}
+                onMonthChange={setMonth}
+                people={people}
+                items={attendanceItems}
+                renderDetail={attendanceDetail}
+                emptyDay="No attendance recorded for this person on this day."
+                legend={ATTENDANCE_LEGEND}
+              />
+            </AsyncBlock>
+          )
+        ) : calendar ? (
+          isShifts ? (
+            <AsyncBlock loading={shifts.loading && !shifts.data} error={shifts.error} onRetry={shifts.reload}>
+              <RosterCalendar
+                month={month}
+                onMonthChange={setMonth}
+                items={shiftItems}
+                renderDetail={shiftDetail}
+                emptyDay="No shifts on this day."
+                legend={SHIFT_LEGEND}
+              />
+            </AsyncBlock>
+          ) : (
+            <AsyncBlock loading={attendance.loading && !attendance.data} error={attendance.error} onRetry={attendance.reload}>
+              <RosterCalendar
+                month={month}
+                onMonthChange={setMonth}
+                items={attendanceItems}
+                renderDetail={attendanceDetail}
+                emptyDay="No attendance recorded on this day."
+                legend={ATTENDANCE_LEGEND}
+              />
+            </AsyncBlock>
+          )
+        ) : isShifts ? (
           <AsyncBlock loading={shifts.loading} error={shifts.error} onRetry={shifts.reload}>
             <DataTable
               rows={shiftRows}

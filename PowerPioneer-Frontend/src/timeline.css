@@ -1,0 +1,346 @@
+/* "Full roster" day timeline drawer (components/DayTimeline.tsx). */
+
+.tl-drawer {
+  --tl-day: var(--blue);
+  --tl-day-bg: var(--dp-accent-soft, #e9f2ff);
+  --tl-oncall: #0a968c;
+  --tl-oncall-bg: #e4f7f4;
+  --tl-long: #d9861a;
+  --tl-long-bg: #fff1dc;
+  --tl-night: #7048dc;
+  --tl-night-bg: #f0ebff;
+  --tl-done: #13977d;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 22px 22px 18px;
+}
+
+.tl-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.tl-head .section-kicker {
+  margin-bottom: 6px;
+}
+
+.tl-head h2 {
+  margin: 0 0 4px;
+  color: var(--navy);
+  font-size: 22px;
+  letter-spacing: -0.6px;
+}
+
+.tl-head p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* stat tiles */
+.tl-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.tl-stats > div {
+  padding: 11px 12px;
+  background: #f6f8fc;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.tl-stats span {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+  margin-bottom: 6px;
+}
+
+.tl-stats strong {
+  color: var(--navy);
+  font-family: "Manrope", sans-serif;
+  font-size: 18px;
+}
+
+/* happening now */
+.tl-now {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 14px;
+  background: var(--dp-accent-soft, #edf4ff);
+  border: 1px solid var(--dp-accent-border, #d6e4fb);
+  border-radius: 14px;
+}
+
+.tl-now-icon {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: var(--dp-gradient, linear-gradient(135deg, #1769e8, #5e41dd));
+  border-radius: 11px;
+  box-shadow: 0 6px 16px var(--dp-gradient-shadow, rgba(23, 105, 232, 0.22));
+}
+
+.tl-now > div:last-child {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tl-now span {
+  color: var(--dp-accent-text, #1a5fc4);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+}
+
+.tl-now strong {
+  color: var(--navy);
+  font-size: 14px;
+}
+
+.tl-now small {
+  color: var(--dp-accent-text, #1a5fc4);
+  font-size: 11px;
+}
+
+/* legend */
+.tl-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding: 8px 12px;
+  background: #f6f8fc;
+  border-radius: 10px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.tl-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tl-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.tl-dot.day { background: var(--tl-day); }
+.tl-dot.oncall { background: var(--tl-oncall); }
+.tl-dot.long { background: var(--tl-long); }
+.tl-dot.night { background: var(--tl-night); }
+
+/* period groups */
+.tl-group-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 8px 0 6px;
+  border-bottom: 1px solid var(--line);
+}
+
+.tl-group-head h3 {
+  margin: 0;
+  color: var(--navy);
+  font-size: 15px;
+}
+
+.tl-group-head h3 small {
+  margin-left: 6px;
+  color: var(--muted);
+  font-family: "DM Sans", sans-serif;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.tl-group-head > span {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+/* the timeline itself */
+.tl-list {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tl-item {
+  position: relative;
+  display: grid;
+  grid-template-columns: 52px 32px minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+  min-height: 62px;
+  padding: 8px 6px;
+  border-radius: 12px;
+}
+
+/* connector line running through the nodes */
+.tl-item::before {
+  content: "";
+  position: absolute;
+  left: calc(6px + 52px + 14px + 15px);
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--line);
+}
+
+.tl-item:first-child::before { top: 50%; }
+.tl-item:last-child::before { bottom: 50%; }
+.tl-item:only-child::before { display: none; }
+
+.tl-item.active {
+  background: linear-gradient(90deg, var(--dp-active-row, rgba(226, 240, 255, 0.85)), transparent);
+}
+
+.tl-time {
+  display: flex;
+  flex-direction: column;
+}
+
+.tl-time strong {
+  color: var(--navy);
+  font-size: 13px;
+}
+
+.tl-time span {
+  color: var(--muted);
+  font-size: 10px;
+  margin-top: 2px;
+}
+
+.tl-node {
+  position: relative;
+  z-index: 1;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 3px solid #fff;
+}
+
+.tl-node.day { color: var(--tl-day); background: var(--tl-day-bg); }
+.tl-node.oncall { color: var(--tl-oncall); background: var(--tl-oncall-bg); }
+.tl-node.long { color: var(--tl-long); background: var(--tl-long-bg); }
+.tl-node.night { color: var(--tl-night); background: var(--tl-night-bg); }
+
+.tl-item.done .tl-node {
+  color: #fff;
+  background: var(--tl-done);
+}
+
+.tl-item.active .tl-node {
+  box-shadow: 0 0 0 4px var(--dp-focus, rgba(23, 105, 232, 0.2));
+}
+
+.tl-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.tl-copy > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tl-copy strong {
+  color: #263957;
+  font-size: 13px;
+}
+
+.tl-item.active .tl-copy strong {
+  color: var(--dp-accent-text, #1a5fc4);
+}
+
+.tl-copy > span {
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 2px;
+}
+
+.tl-footer {
+  margin-top: 4px;
+  width: 100%;
+  padding: 12px;
+}
+
+.tl-footer svg:last-child {
+  margin-left: auto;
+}
+
+@media (max-width: 520px) {
+  .tl-stats strong {
+    font-size: 15px;
+  }
+
+  .tl-item {
+    grid-template-columns: 44px 32px minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .tl-item::before {
+    left: calc(6px + 44px + 10px + 15px);
+  }
+}
+
+/* roster flags (shift_roster.*_flag) — shared by the timeline and the My shift list */
+.tl-tags,
+.schedule-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 5px;
+}
+
+.shift-tag {
+  padding: 2px 7px;
+  border-radius: 20px;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.shift-tag.understaffed { color: #b42d45; background: #fde9ec; }
+.shift-tag.short-notice { color: #a8620b; background: #fff0d6; }
+.shift-tag.redeployed { color: #6740d4; background: #efeaff; }
+.shift-tag.missed-break { color: #a8620b; background: #fff4e5; }
+
+.tl-item.done .tl-copy strong {
+  color: var(--muted);
+}
+
+/* My shift list: icon colours per shift kind */
+.schedule-symbol.long { color: #c77a12; background: #fff1dc; }
+.schedule-symbol.night { color: #6740d4; background: #f0ebff; }
+.schedule-symbol.oncall { color: #0a968c; background: #e6f8f6; }
+
+.schedule-item.done {
+  opacity: 0.7;
+}
+
+.schedule-empty {
+  padding: 24px 0 12px;
+  color: var(--muted);
+  font-size: 13px;
+}

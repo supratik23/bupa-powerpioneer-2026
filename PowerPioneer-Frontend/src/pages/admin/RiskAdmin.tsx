@@ -18,7 +18,6 @@ function CalculatePanel({ onDone }: { onDone: () => void }) {
   const { employees } = useEmployees();
   const [employee, setEmployee] = useState("");
   const [date, setDate] = useState(isoDate());
-  const [interventions, setInterventions] = useState(true);
   const [notice, setNotice] = useState<string | null>(null);
   const { busy, error, run } = useAction();
 
@@ -27,7 +26,6 @@ function CalculatePanel({ onDone }: { onDone: () => void }) {
       const res = await api.post<WellbeingResult>("/wellbeing/calculate/", {
         employee_id: employee,
         snapshot_date: date,
-        create_interventions: interventions,
       });
       setNotice(`Score ${num(res.snapshot.wellbeing_score)} · ${label(res.prediction.risk_band)} risk.`);
       onDone();
@@ -37,7 +35,6 @@ function CalculatePanel({ onDone }: { onDone: () => void }) {
     run(async () => {
       const res = await api.post<CalculateAllResult>("/wellbeing/calculate-all/", {
         snapshot_date: date,
-        create_interventions: interventions,
       });
       const bands = Object.entries(res.bands).map(([b, n]) => `${label(b)}: ${n}`).join(", ");
       setNotice(`Scored ${res.employees_scored} employees for ${formatDate(res.snapshot_date)}. ${bands}`);
@@ -52,7 +49,6 @@ function CalculatePanel({ onDone }: { onDone: () => void }) {
           {employees.filter((e) => e.is_active).map((e) => <option key={e.employee_id} value={e.employee_id}>{e.full_name}</option>)}
         </select>
         <input className="secondary-button" type="date" value={date} onChange={(e) => setDate(e.target.value)} aria-label="Snapshot date" />
-        <CheckField label="Raise interventions" checked={interventions} onChange={setInterventions} />
         <button className="secondary-button" disabled={busy || !employee} onClick={() => void calcOne()}>Calculate one</button>
         <button className="primary-button" disabled={busy} onClick={() => void calcAll()}>{busy ? "Working…" : "Calculate all"}</button>
       </div>

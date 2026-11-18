@@ -9,8 +9,6 @@ export const PAGES = [
   "roster",
   "team-roster",
   "leave",
-  "interventions",
-  "chat",
   "admin",
 ] as const;
 export type PageId = (typeof PAGES)[number];
