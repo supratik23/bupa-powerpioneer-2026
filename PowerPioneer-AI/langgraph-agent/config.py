@@ -1,4 +1,8 @@
+from pathlib import Path
 from pydantic_settings import BaseSettings
+
+# Absolute path so the .env is found no matter which directory uvicorn / the MCP servers are started from
+ENV_FILE = Path(__file__).resolve().parent / ".env"
 
 class Settings(BaseSettings):
     """
@@ -57,6 +61,6 @@ class Settings(BaseSettings):
 
 
     class Config:
-        env_file = ".env"
+        env_file = ENV_FILE
 
 settings = Settings()
