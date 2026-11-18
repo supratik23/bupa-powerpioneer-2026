@@ -692,3 +692,53 @@
 .factors-cell.expanded span {
   white-space: normal;
 }
+
+/* Team view: real filters (time range + department) styled like the old buttons */
+.select-pill {
+  position: relative;
+  padding: 0;
+  cursor: pointer;
+}
+
+.select-pill select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding: 9px 30px 9px 12px;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  font: inherit;
+  cursor: pointer;
+}
+
+.select-pill select:focus-visible {
+  outline: none;
+}
+
+.select-pill:focus-within {
+  box-shadow: 0 0 0 3px var(--dp-focus, rgba(23, 105, 232, 0.28));
+}
+
+.select-pill svg {
+  position: absolute;
+  right: 10px;
+  pointer-events: none;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* Team trend chart: data points with hover titles */
+.chart-point {
+  stroke: var(--surface, #fff);
+  stroke-width: 1.5;
+}
+
+.chart-point.workload { fill: #2764e7; }
+.chart-point.wellbeing { fill: #04a79b; }

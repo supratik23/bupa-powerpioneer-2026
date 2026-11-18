@@ -1,67 +1,43 @@
 import { useEffect } from "react";
-import { ArrowRight, CalendarDays, Check, Coffee, HeartPulse, Stethoscope, UsersRound, X } from "lucide-react";
+import { ArrowRight, CalendarDays, Check, Moon, PhoneCall, Sun, Sunrise, X } from "lucide-react";
+import type { Shift } from "../api/types";
+import { formatHours } from "../lib/format";
+import {
+  SHIFT_KIND_LABEL,
+  dayLabel,
+  shiftFlags,
+  shiftHours,
+  shiftKind,
+  shiftRange,
+  shiftState,
+  shiftTitle,
+  startOfDay,
+  untilLabel,
+} from "../lib/shifts";
+import type { ShiftKind } from "../lib/shifts";
 
-/** One entry on the presentational day schedule (static UI data, not from the API). */
-export interface TimelineItem {
-  time: string;
-  duration: string;
-  title: string;
-  detail: string;
-  kind: string;
-  done?: boolean;
-  active?: boolean;
+const KIND_ORDER: ShiftKind[] = ["day", "long", "night", "oncall"];
+
+function KindIcon({ kind, size }: { kind: ShiftKind; size: number }) {
+  if (kind === "night") return <Moon size={size} />;
+  if (kind === "oncall") return <PhoneCall size={size} />;
+  if (kind === "long") return <Sunrise size={size} />;
+  return <Sun size={size} />;
 }
 
-type Category = "care" | "break" | "handover" | "admin";
-
-const CATEGORY: Record<string, Category> = {
-  care: "care",
-  review: "care",
-  break: "break",
-  handover: "handover",
-  notes: "admin",
-};
-
-const LEGEND: Array<{ id: Category; label: string }> = [
-  { id: "care", label: "Care" },
-  { id: "break", label: "Break" },
-  { id: "handover", label: "Handover" },
-  { id: "admin", label: "Admin" },
-];
-
-const PERIODS = [
-  { id: "Morning", from: 0, to: 13 * 60 },
-  { id: "Afternoon", from: 13 * 60, to: 17 * 60 },
-  { id: "Evening", from: 17 * 60, to: 24 * 60 },
-];
-
-const toMinutes = (hhmm: string) => {
-  const [h, m] = hhmm.split(":").map(Number);
-  return h * 60 + m;
-};
-const durationOf = (item: TimelineItem) => parseInt(item.duration, 10) || 0;
-const endOf = (item: TimelineItem) => toMinutes(item.time) + durationOf(item);
-const clock = (mins: number) =>
-  `${String(Math.floor(mins / 60) % 24).padStart(2, "0")}:${String(mins % 60).padStart(2, "0")}`;
-const hoursLabel = (mins: number) => `${Math.floor(mins / 60)}h${mins % 60 ? ` ${mins % 60}m` : ""}`;
-
-function KindIcon({ kind, size }: { kind: string; size: number }) {
-  if (kind === "break") return <Coffee size={size} />;
-  if (kind === "handover") return <UsersRound size={size} />;
-  if (kind === "notes") return <CalendarDays size={size} />;
-  return <Stethoscope size={size} />;
-}
-
-export function DayTimelineDrawer({
+/** "Full roster" drawer: the logged-in user's shifts for the next 7 days, from /shifts/. */
+export function RosterTimelineDrawer({
   open,
-  items,
-  ward,
+  shifts,
+  loading,
+  error,
   onClose,
   onOpenRoster,
 }: {
   open: boolean;
-  items: TimelineItem[];
-  ward: string;
+  shifts: Shift[];
+  loading: boolean;
+  error: string | null;
   onClose: () => void;
   onOpenRoster: () => void;
 }) {
@@ -74,35 +50,35 @@ export function DayTimelineDrawer({
 
   if (!open) return null;
 
-  const sorted = [...items].sort((a, b) => toMinutes(a.time) - toMinutes(b.time));
-  const appointments = sorted.filter((i) => CATEGORY[i.kind] === "care").length;
-  const breaks = sorted.filter((i) => i.kind === "break").length;
-  const shiftLength = sorted.length ? endOf(sorted[sorted.length - 1]) - toMinutes(sorted[0].time) : 0;
+  const now = new Date();
+  const from = startOfDay(now);
+  const to = new Date(from.getTime() + 7 * 86400000);
+  const week = shifts
+    .filter((s) => new Date(s.shift_end) > from && new Date(s.shift_start) < to)
+    .sort((a, b) => +new Date(a.shift_start) - +new Date(b.shift_start));
 
-  const current = sorted.find((i) => i.active);
-  const nextBreak = current && sorted.find((i) => i.kind === "break" && toMinutes(i.time) >= endOf(current));
-  const breakGap = current && nextBreak ? toMinutes(nextBreak.time) - endOf(current) : null;
+  const plannedHours = week.reduce((sum, s) => sum + Number(s.planned_hours || 0), 0);
+  const nights = week.filter((s) => s.shift_type === "NIGHT").length;
+  const current = week.find((s) => shiftState(s, now) === "active");
+  const next = week.find((s) => shiftState(s, now) === "upcoming");
 
-  const groups = PERIODS.map((p) => {
-    const list = sorted.filter((i) => toMinutes(i.time) >= p.from && toMinutes(i.time) < p.to);
-    return {
-      ...p,
-      list,
-      range: list.length ? `${list[0].time}–${clock(endOf(list[list.length - 1]))}` : "",
-    };
-  }).filter((g) => g.list.length > 0);
+  const days = new Map<string, Shift[]>();
+  week.forEach((s) => {
+    const key = startOfDay(new Date(s.shift_start)).toISOString();
+    days.set(key, [...(days.get(key) ?? []), s]);
+  });
 
-  const today = new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
+  const location = (current ?? next ?? week[0])?.location;
 
   return (
     <>
-      <button className="drawer-backdrop" aria-label="Close full day roster" onClick={onClose} />
-      <aside className="member-drawer tl-drawer" role="dialog" aria-label="Full day roster">
+      <button className="drawer-backdrop" aria-label="Close roster" onClick={onClose} />
+      <aside className="member-drawer tl-drawer" role="dialog" aria-label="Your roster this week">
         <div className="tl-head">
           <div>
-            <span className="section-kicker">{today}</span>
-            <h2>Full day roster</h2>
-            <p>Your complete shift at a glance · {ward}</p>
+            <span className="section-kicker">Next 7 days</span>
+            <h2>Your roster</h2>
+            <p>Your shifts at a glance{location ? ` · ${location}` : ""}</p>
           </div>
           <button className="ghost-icon" aria-label="Close" onClick={onClose}>
             <X size={20} />
@@ -111,78 +87,97 @@ export function DayTimelineDrawer({
 
         <div className="tl-stats">
           <div>
-            <span>Appointments</span>
-            <strong>{appointments}</strong>
+            <span>Shifts</span>
+            <strong>{loading ? "…" : week.length}</strong>
           </div>
           <div>
-            <span>Protected breaks</span>
-            <strong>{breaks}</strong>
+            <span>Planned hours</span>
+            <strong>{loading ? "…" : formatHours(plannedHours)}</strong>
           </div>
           <div>
-            <span>Shift length</span>
-            <strong>{hoursLabel(shiftLength)}</strong>
+            <span>Night shifts</span>
+            <strong>{loading ? "…" : nights}</strong>
           </div>
         </div>
 
-        {current && (
+        {(current || next) && (
           <div className="tl-now">
             <div className="tl-now-icon">
-              <HeartPulse size={20} />
+              <KindIcon kind={shiftKind((current ?? next)!.shift_type)} size={20} />
             </div>
             <div>
               <span>
-                Happening now · {current.time}–{clock(endOf(current))}
+                {current ? "On shift now" : "Next shift"} · {shiftRange((current ?? next)!)}
               </span>
-              <strong>{current.title}</strong>
-              {breakGap !== null && (
-                <small>
-                  {breakGap === 0 ? "Protected break starts straight after" : `Protected break begins in ${breakGap} minutes`}
-                </small>
-              )}
+              <strong>
+                {shiftTitle((current ?? next)!)}
+                {(current ?? next)!.location ? ` · ${(current ?? next)!.location}` : ""}
+              </strong>
+              <small>
+                {current ? `Ends in ${untilLabel(current.shift_end, now)}` : `Starts in ${untilLabel(next!.shift_start, now)}`}
+              </small>
             </div>
           </div>
         )}
 
         <div className="tl-legend">
-          {LEGEND.map((l) => (
-            <span key={l.id}>
-              <i className={`tl-dot ${l.id}`} />
-              {l.label}
+          {KIND_ORDER.map((k) => (
+            <span key={k}>
+              <i className={`tl-dot ${k}`} />
+              {SHIFT_KIND_LABEL[k]}
             </span>
           ))}
         </div>
 
-        {groups.map((g) => (
-          <section className="tl-group" key={g.id}>
+        {error && <p className="pp-muted">Could not load your roster: {error}</p>}
+        {!loading && !error && week.length === 0 && (
+          <p className="pp-muted">No shifts rostered in the next 7 days.</p>
+        )}
+
+        {[...days.entries()].map(([key, list]) => (
+          <section className="tl-group" key={key}>
             <div className="tl-group-head">
               <h3>
-                {g.id} <small>{g.range}</small>
+                {dayLabel(key, now)}{" "}
+                <small>{new Date(key).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}</small>
               </h3>
               <span>
-                {g.list.length} {g.list.length === 1 ? "activity" : "activities"}
+                {list.length} {list.length === 1 ? "shift" : "shifts"}
               </span>
             </div>
             <ol className="tl-list">
-              {g.list.map((item) => {
-                const cat = CATEGORY[item.kind] ?? "care";
+              {list.map((shift) => {
+                const state = shiftState(shift, now);
+                const kind = shiftKind(shift.shift_type);
+                const load = shift.actual_patient_load ?? shift.expected_patient_load;
                 return (
-                  <li
-                    key={`${item.time}-${item.title}`}
-                    className={`tl-item ${item.active ? "active" : ""} ${item.done ? "done" : ""}`}
-                  >
+                  <li key={shift.shift_id} className={`tl-item ${state}`}>
                     <div className="tl-time">
-                      <strong>{item.time}</strong>
-                      <span>{item.duration}</span>
+                      <strong>{shiftRange(shift).split("–")[0]}</strong>
+                      <span>{shiftHours(shift)}</span>
                     </div>
-                    <div className={`tl-node ${cat}`}>
-                      {item.done ? <Check size={14} strokeWidth={3} /> : <KindIcon kind={item.kind} size={15} />}
+                    <div className={`tl-node ${kind}`}>
+                      {state === "done" ? <Check size={14} strokeWidth={3} /> : <KindIcon kind={kind} size={15} />}
                     </div>
                     <div className="tl-copy">
                       <div>
-                        <strong>{item.title}</strong>
-                        {item.active && <span className="live-pill">Now</span>}
+                        <strong>{shiftTitle(shift)}</strong>
+                        {state === "active" && <span className="live-pill">Now</span>}
                       </div>
-                      <span>{item.detail}</span>
+                      <span>
+                        {shiftRange(shift)}
+                        {shift.location ? ` · ${shift.location}` : ""}
+                        {load != null ? ` · ${Number(load)} patients` : ""}
+                      </span>
+                      {shiftFlags(shift).length > 0 && (
+                        <div className="tl-tags">
+                          {shiftFlags(shift).map((f) => (
+                            <em key={f.id} className={`shift-tag ${f.id}`}>
+                              {f.text}
+                            </em>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </li>
                 );

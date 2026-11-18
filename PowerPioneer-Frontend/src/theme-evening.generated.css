@@ -591,3 +591,31 @@ html[data-daypart="evening"] .tl-node {
 html[data-daypart="evening"] .tl-copy strong {
     color: hsl(217 39% 83%)
 }
+html[data-daypart="evening"] .shift-tag.understaffed {
+    color: hsl(349 60% 75%);
+    background: hsl(351 42% 22%)
+}
+html[data-daypart="evening"] .shift-tag.short-notice {
+    color: hsl(33 75% 79%);
+    background: hsl(38 42% 26%)
+}
+html[data-daypart="evening"] .shift-tag.redeployed {
+    color: hsl(256 63% 71%);
+    background: hsl(254 42% 21%)
+}
+html[data-daypart="evening"] .shift-tag.missed-break {
+    color: hsl(33 75% 79%);
+    background: hsl(35 42% 22%)
+}
+html[data-daypart="evening"] .schedule-symbol.long {
+    color: hsl(34 75% 76%);
+    background: hsl(36 42% 24%)
+}
+html[data-daypart="evening"] .schedule-symbol.night {
+    color: hsl(256 63% 71%);
+    background: hsl(255 42% 21%)
+}
+html[data-daypart="evening"] .schedule-symbol.oncall {
+    color: hsl(176 75% 80%);
+    background: hsl(173 42% 24%)
+}

@@ -1,14 +1,14 @@
 /* "Full roster" day timeline drawer (components/DayTimeline.tsx). */
 
 .tl-drawer {
-  --tl-care: var(--blue);
-  --tl-care-bg: var(--dp-accent-soft, #e9f2ff);
-  --tl-break: #0a968c;
-  --tl-break-bg: #e4f7f4;
-  --tl-handover: #d9861a;
-  --tl-handover-bg: #fff1dc;
-  --tl-admin: #7048dc;
-  --tl-admin-bg: #f0ebff;
+  --tl-day: var(--blue);
+  --tl-day-bg: var(--dp-accent-soft, #e9f2ff);
+  --tl-oncall: #0a968c;
+  --tl-oncall-bg: #e4f7f4;
+  --tl-long: #d9861a;
+  --tl-long-bg: #fff1dc;
+  --tl-night: #7048dc;
+  --tl-night-bg: #f0ebff;
   --tl-done: #13977d;
   display: flex;
   flex-direction: column;
@@ -140,10 +140,10 @@
   border-radius: 50%;
 }
 
-.tl-dot.care { background: var(--tl-care); }
-.tl-dot.break { background: var(--tl-break); }
-.tl-dot.handover { background: var(--tl-handover); }
-.tl-dot.admin { background: var(--tl-admin); }
+.tl-dot.day { background: var(--tl-day); }
+.tl-dot.oncall { background: var(--tl-oncall); }
+.tl-dot.long { background: var(--tl-long); }
+.tl-dot.night { background: var(--tl-night); }
 
 /* period groups */
 .tl-group-head {
@@ -237,10 +237,10 @@
   border: 3px solid #fff;
 }
 
-.tl-node.care { color: var(--tl-care); background: var(--tl-care-bg); }
-.tl-node.break { color: var(--tl-break); background: var(--tl-break-bg); }
-.tl-node.handover { color: var(--tl-handover); background: var(--tl-handover-bg); }
-.tl-node.admin { color: var(--tl-admin); background: var(--tl-admin-bg); }
+.tl-node.day { color: var(--tl-day); background: var(--tl-day-bg); }
+.tl-node.oncall { color: var(--tl-oncall); background: var(--tl-oncall-bg); }
+.tl-node.long { color: var(--tl-long); background: var(--tl-long-bg); }
+.tl-node.night { color: var(--tl-night); background: var(--tl-night-bg); }
 
 .tl-item.done .tl-node {
   color: #fff;
@@ -301,4 +301,46 @@
   .tl-item::before {
     left: calc(6px + 44px + 10px + 15px);
   }
+}
+
+/* roster flags (shift_roster.*_flag) — shared by the timeline and the My shift list */
+.tl-tags,
+.schedule-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 5px;
+}
+
+.shift-tag {
+  padding: 2px 7px;
+  border-radius: 20px;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.shift-tag.understaffed { color: #b42d45; background: #fde9ec; }
+.shift-tag.short-notice { color: #a8620b; background: #fff0d6; }
+.shift-tag.redeployed { color: #6740d4; background: #efeaff; }
+.shift-tag.missed-break { color: #a8620b; background: #fff4e5; }
+
+.tl-item.done .tl-copy strong {
+  color: var(--muted);
+}
+
+/* My shift list: icon colours per shift kind */
+.schedule-symbol.long { color: #c77a12; background: #fff1dc; }
+.schedule-symbol.night { color: #6740d4; background: #f0ebff; }
+.schedule-symbol.oncall { color: #0a968c; background: #e6f8f6; }
+
+.schedule-item.done {
+  opacity: 0.7;
+}
+
+.schedule-empty {
+  padding: 24px 0 12px;
+  color: var(--muted);
+  font-size: 13px;
 }
