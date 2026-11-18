@@ -4,6 +4,11 @@ from langchain_ollama import ChatOllama
 from config import settings
 from openai import AzureOpenAI
 from typing import List, Dict, Optional
+from collections.abc import Sequence
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_core.language_models import BaseChatModel
+from langchain_core.runnables import Runnable
+from langchain_core.tools import BaseTool
 import logging
 
 
@@ -31,6 +36,47 @@ def get_ollama_llm():
                         base_url=settings.OLLAMA_BASE_URL,
                         max_tokens=700,
                     )
+
+def get_gemini_llm(
+    model: Optional[str] = None,
+    api_key: Optional[str] = None,
+    temperature: Optional[float] = None,
+    max_output_tokens: Optional[int] = None,
+) -> ChatGoogleGenerativeAI:
+    """
+    Get the Google Gemini LLM instance (LangChain chat model with tool calling support). Function based implementation.
+    Defaults come from settings: GEMINI_MODEL (gemini-3.8-flash), GEMINI_API_KEY, GEMINI_TEMPERATURE, GEMINI_MAX_OUTPUT_TOKENS.
+    """
+    api_key = api_key or settings.GEMINI_API_KEY
+    if not api_key:
+        raise ValueError("GEMINI_API_KEY is not set in environment variables or .env file.")
+
+    kwargs = {
+        "model": model or settings.GEMINI_MODEL,
+        "google_api_key": api_key,
+        "max_retries": 2,
+    }
+    temperature = temperature if temperature is not None else settings.GEMINI_TEMPERATURE
+    if temperature is not None:
+        kwargs["temperature"] = temperature
+    max_output_tokens = max_output_tokens or settings.GEMINI_MAX_OUTPUT_TOKENS
+    if max_output_tokens:
+        kwargs["max_output_tokens"] = max_output_tokens
+
+    logger.info(f"Creating Gemini LLM client for model {kwargs['model']}")
+    return ChatGoogleGenerativeAI(**kwargs)
+
+def get_gemini_llm_with_tools(tools: Sequence[BaseTool], llm: Optional[BaseChatModel] = None) -> Runnable:
+    """
+    Get the Google Gemini LLM with the given tools bound, so the model can emit tool calls.
+    If no tools are given, the plain Gemini LLM is returned.
+    """
+    llm = llm or get_gemini_llm()
+    if not tools:
+        logger.warning("No tools provided. Returning Gemini LLM without bound tools.")
+        return llm
+    logger.info(f"Binding {len(tools)} tools to Gemini LLM: {[tool.name for tool in tools]}")
+    return llm.bind_tools(list(tools))
 
 class AzureOpenAIClient:
 

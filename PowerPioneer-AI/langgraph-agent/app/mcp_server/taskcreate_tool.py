@@ -1,4 +1,4 @@
-from services.db_service import DBConnectionManager
+from services.db_service import SupabaseDBConnectionManager as DBConnectionManager
 import logging
 from fastmcp import FastMCP
 import json

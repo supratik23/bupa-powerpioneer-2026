@@ -2,28 +2,58 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     """
-    Application Settings. These settings will be loaded from environment variables or a .env file. 
+    Application Settings. These settings will be loaded from environment variables or a .env file.
     In the server it will be loaded from environment variables, and in development it will be loaded from a .env file.
     """
 
-    OPENAI_API_KEY: str
-    AZURE_OPENAI_ENDPOINT: str
-    AZURE_OPENAI_API_VERSION: str
-    AZURE_OPENAI_DEPLOYMENT: str
-    AZURE_OPENAI_MODEL: str
+    # Azure OpenAI (optional - only needed when get_openai_llm() is used)
+    OPENAI_API_KEY: str | None = None
+    AZURE_OPENAI_ENDPOINT: str | None = None
+    AZURE_OPENAI_API_VERSION: str | None = None
+    AZURE_OPENAI_DEPLOYMENT: str | None = None
+    AZURE_OPENAI_MODEL: str | None = None
 
-    AZURE_SEARCH_SERVICE_NAME: str
-    AZURE_SEARCH_API_KEY: str
+    # Azure AI Search (optional - only needed by the fetch_azure_ai_search_documents MCP tool)
+    AZURE_SEARCH_SERVICE_NAME: str | None = None
+    AZURE_SEARCH_API_KEY: str | None = None
     AZURE_SEARCH_SEMANTIC_CONFIGURATION: str | None = None
 
-    DB_SERVER_NAME: str
-    DB_NAME: str
-    DB_USERNAME: str
-    DB_PASSKEY: str
+    # MySQL (optional - only needed when the MySQL DBConnectionManager is used)
+    DB_SERVER_NAME: str | None = None
+    DB_NAME: str | None = None
+    DB_USERNAME: str | None = None
+    DB_PASSKEY: str | None = None
 
-    OLLAMA_MODEL: str
-    OLLAMA_BASE_URL: str
+    # Ollama (optional - only needed when get_ollama_llm() is used)
+    OLLAMA_MODEL: str | None = None
+    OLLAMA_BASE_URL: str | None = None
     OLLAMA_SUPPORTS_TOOLS: bool = True
+
+    # Google Gemini (required - LLM used by the application)
+    GEMINI_API_KEY: str
+    GEMINI_MODEL: str = "gemini-3.8-flash"
+    GEMINI_TEMPERATURE: float | None = None  # None -> model default
+    GEMINI_MAX_OUTPUT_TOKENS: int | None = 2048
+
+    # Supabase Postgres (used by SupabaseDBConnectionManager).
+    # Set SUPABASE_DB_URL (postgresql://... connection string) OR the individual fields.
+    SUPABASE_DB_URL: str | None = None
+    SUPABASE_DB_HOST: str | None = None
+    SUPABASE_DB_PORT: int = 5432
+    SUPABASE_DB_NAME: str = "postgres"
+    SUPABASE_DB_USER: str | None = None
+    SUPABASE_DB_PASSWORD: str | None = None
+    SUPABASE_DB_SSLMODE: str = "require"
+
+    # SMTP (used by the send_notification_email MCP tool)
+    SMTP_HOST: str | None = None
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: str | None = None
+    SMTP_PASSWORD: str | None = None
+    SMTP_FROM_EMAIL: str | None = None
+    SMTP_USE_TLS: bool = True    # STARTTLS (port 587)
+    SMTP_USE_SSL: bool = False   # implicit TLS (port 465); overrides SMTP_USE_TLS
+    SMTP_TIMEOUT: int = 20
 
 
     class Config:
