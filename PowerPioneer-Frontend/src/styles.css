@@ -1204,8 +1204,100 @@ h3,
 /* Supportive nudge popup: reuses the check-in panel look, but sized to its content instead of a full-height
    drawer (the check-in panel is pinned top + bottom, which left empty space under the short nudge). */
 .wellbeing-panel.support-nudge-panel {
-  bottom: auto;
+  top: auto;
+  bottom: 22px;
   max-height: calc(100vh - 116px);
+}
+
+/* In-app toast shown at the top of the screen when a new notification arrives (same look as the heart button) */
+.notif-toast {
+  position: fixed;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 90;
+  width: min(420px, calc(100vw - 32px));
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px 10px 10px;
+  color: #fff;
+  background: linear-gradient(135deg, #10a9ba, #1169d6 55%, #613bd5);
+  border: 4px solid #fff;
+  border-radius: 19px;
+  box-shadow: 0 14px 34px rgba(14, 74, 169, 0.34);
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  overflow: hidden;
+  animation: notif-toast-in 260ms ease-out;
+}
+
+.notif-toast-icon {
+  flex: none;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.notif-toast-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.notif-toast-text strong {
+  font-size: 14px;
+}
+
+.notif-toast-text span {
+  font-size: 12px;
+  opacity: 0.9;
+}
+
+.notif-toast-close {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  color: #fff;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.notif-toast-close:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.notif-toast-timer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.85);
+  transform-origin: left;
+  animation: nudge-countdown linear forwards;
+}
+
+@keyframes notif-toast-in {
+  from { opacity: 0; transform: translate(-50%, -16px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+html[data-daypart] .notif-toast {
+  background: var(--dp-deep);
+}
+
+html[data-daypart="evening"] .notif-toast {
+  border-color: hsl(232 30% 16%);
 }
 
 .support-nudge-panel .panel-body {
@@ -2037,6 +2129,10 @@ h3,
     bottom: 0;
     width: 100%;
     border-radius: 0;
+  }
+
+  .notif-toast {
+    top: 10px;
   }
 
   /* On phones the nudge is a bottom sheet that is only as tall as its content */

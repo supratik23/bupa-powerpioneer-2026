@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
-import { Bell, CheckCheck, Mail } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { Bell, CheckCheck, Mail, X } from "lucide-react";
 import { api, getFreshAccessToken } from "../api/client";
 import { wsUrl } from "../api/config";
 import type { Inbox, InboxItem } from "../api/types";
@@ -9,6 +10,8 @@ import { useClickOutside } from "./HeaderMenus";
 
 /** How often the bell checks for new alerts (ms). Short so a manager sees an alert appear during a live demo. */
 const POLL_MS = 30_000;
+/** How long the in-app toast for a new notification stays on screen (ms). */
+const TOAST_MS = 5_000;
 
 function timeAgo(iso: string): string {
   const minutes = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60_000));
@@ -38,13 +41,37 @@ export function NotificationBell({ navigate }: { navigate: (page: PageId) => voi
   const close = useCallback(() => setOpen(false), []);
   const ref = useClickOutside(open, close);
 
+  const [toast, setToast] = useState<InboxItem | null>(null);
+  const toastTimer = useRef<number | undefined>(undefined);
+  // Unread alerts already known (employee + latest alert time). null until the first load, so alerts
+  // that were already waiting at login don't pop a toast - only ones that arrive while the app is open.
+  const known = useRef<Set<string> | null>(null);
+
+  const showToast = useCallback((item: InboxItem) => {
+    window.clearTimeout(toastTimer.current);
+    setToast(item);
+    toastTimer.current = window.setTimeout(() => setToast(null), TOAST_MS);
+  }, []);
+
+  useEffect(() => () => window.clearTimeout(toastTimer.current), []);
+
   const load = useCallback(async () => {
     try {
-      setInbox(await api.get<Inbox>("/interventions/inbox/"));
+      const next = await api.get<Inbox>("/interventions/inbox/");
+      setInbox(next);
+      const unreadItems = next.items.filter((i) => i.unread);
+      const keys = unreadItems.map((i) => `${i.employee_id}:${i.latest_at}`);
+      if (known.current) {
+        const fresh = unreadItems.find((_, idx) => !known.current!.has(keys[idx]));
+        if (fresh) showToast(fresh);
+      } else {
+        known.current = new Set();
+      }
+      keys.forEach((k) => known.current!.add(k));
     } catch {
       /* backend unreachable: keep the last result, try again on the next tick */
     }
-  }, []);
+  }, [showToast]);
 
   useEffect(() => {
     if (!user) return;
@@ -110,6 +137,39 @@ export function NotificationBell({ navigate }: { navigate: (page: PageId) => voi
 
   return (
     <div className="pp-anchor" ref={ref}>
+      {toast && createPortal(
+        <div
+          className="notif-toast"
+          role="status"
+          aria-live="polite"
+          onClick={() => {
+            setToast(null);
+            void load();
+            setOpen(true);
+          }}
+        >
+          <span className="notif-toast-icon">
+            <Bell size={20} fill="currentColor" />
+          </span>
+          <span className="notif-toast-text">
+            <strong>New notification · {toast.employee_name}</strong>
+            <span>{noteText(toast)}</span>
+          </span>
+          <button
+            className="notif-toast-close"
+            aria-label="Dismiss notification"
+            onClick={(e) => {
+              e.stopPropagation();
+              window.clearTimeout(toastTimer.current);
+              setToast(null);
+            }}
+          >
+            <X size={16} />
+          </button>
+          <span key={`${toast.employee_id}:${toast.latest_at}`} className="notif-toast-timer" style={{ animationDuration: `${TOAST_MS}ms` }} />
+        </div>,
+        document.body,
+      )}
       <button
         className="icon-button notif-bell"
         aria-label={unread ? `Notifications: ${unread} new` : "Notifications"}
