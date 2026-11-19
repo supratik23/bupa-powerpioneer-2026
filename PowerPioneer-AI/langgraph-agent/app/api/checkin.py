@@ -34,10 +34,11 @@ if _APP_DIR not in sys.path:
 
 from config import settings  # noqa: E402
 from services.checkin_service import (  # noqa: E402
-    CheckinError, find_queued_question, generate_next_question, record_answer, serve_question,
+    CheckinError, find_queued_question, generate_next_question, record_answer, serve_question, support_for_answer,
 )
 from services.db_service import SupabaseDBConnectionManager  # noqa: E402
 from services.escalation_service import record_interventions, send_intervention_emails  # noqa: E402
+from services.notify_service import notify_employee_async  # noqa: E402
 from services.risk_feature_service import NoShiftsInWindow, compute_wellbeing_score  # noqa: E402
 from services.risk_model_service import score_employee  # noqa: E402
 from services.shiftguard_repository import EMPLOYEE_COLUMNS, EMPLOYEE_FROM  # noqa: E402
@@ -156,6 +157,7 @@ def answer(body: AnswerRequest, background_tasks: BackgroundTasks,
     try:
         with SupabaseDBConnectionManager() as db:
             saved = record_answer(db, employee_id, str(body.question_id), str(body.option_id))
+            support = support_for_answer(db, str(body.question_id), str(body.option_id))
             employee = db.fetch_one(f"SELECT {EMPLOYEE_COLUMNS} {EMPLOYEE_FROM} WHERE e.employee_id = %s", (employee_id,))
             risk, skipped_reason, actions = None, None, []
             try:
@@ -175,6 +177,13 @@ def answer(body: AnswerRequest, background_tasks: BackgroundTasks,
 
     if any(a["action_status"] == "PENDING" and a["action_type"].startswith("EMAIL_") for a in actions):
         background_tasks.add_task(send_intervention_emails, employee, risk, actions)
+    for a in actions:   # real-time bell for the manager / buddy (best effort)
+        if a["action_status"] == "PENDING" and a.get("target_employee_id"):
+            payload = {"kind": "intervention", "intervention_id": a["intervention_id"], "action_type": a["action_type"],
+                       "employee_id": employee_id, "employee_name": f"{employee['first_name']} {employee['last_name']}"}
+            if a["target_role"] == "manager":
+                payload["risk_band"] = risk["risk_band"]       # buddies never see risk levels
+            notify_employee_async(a["target_employee_id"], payload)
 
     return {
         **saved,
@@ -184,4 +193,5 @@ def answer(body: AnswerRequest, background_tasks: BackgroundTasks,
         "risk": risk,
         "risk_skipped_reason": skipped_reason,
         "actions": [{k: a[k] for k in ("intervention_id", "action_type", "action_status", "target_role")} for a in actions],
+        "support": support,   # {title, message} after a low answer, shown to the employee; never includes risk
     }

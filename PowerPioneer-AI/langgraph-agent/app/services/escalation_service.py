@@ -131,6 +131,7 @@ def record_interventions(db, employee: dict, risk: dict) -> list[dict]:
             created.append({
                 "intervention_id": str(row["intervention_id"]), "action_type": action_type, "action_status": status,
                 "failure_reason": failure, "target_role": role, "target_email": target_email, "target_name": target_name,
+                "target_employee_id": str(target_id) if target_id else None,
             })
         connection.commit()
     except Exception:

@@ -122,11 +122,24 @@ def shape_employee(row: dict) -> dict:
     })
 
 
-def resolve_employee(db, identifier: str) -> dict:
+def resolve_employee(db, identifier: str, scoped: bool = True) -> dict:
     """
     Find exactly one employee by employee_id (UUID), email, employee_number or full/partial name.
-    Raises ToolInputError when nothing or more than one employee matches.
+    Raises ToolInputError when nothing or more than one employee matches, or (scoped=True) when the person asking
+    the chat agent is a manager and the employee is not in their team. scoped=False is for targets such as a
+    buddy from another team.
     """
+    row = _resolve_employee(db, identifier)
+    if scoped:
+        from services.access_scope import can_see
+        if not can_see(row):
+            raise ToolInputError(
+                f"{row['first_name']} {row['last_name']} is not in your team, so their wellbeing data is not available to you."
+            )
+    return row
+
+
+def _resolve_employee(db, identifier: str) -> dict:
     identifier = (identifier or "").strip()
     if not identifier:
         raise ToolInputError("An employee identifier (employee_id, email, employee_number or name) is required.")

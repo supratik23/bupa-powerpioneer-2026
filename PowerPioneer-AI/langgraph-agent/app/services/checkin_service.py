@@ -43,6 +43,32 @@ TEMPLATE_QUESTIONS = [
      ["Struggling", "Finding it hard", "Coping okay", "Coping well"]),
 ]
 
+# Debrief after end-of-life care: served straight away when that appointment is completed (worst -> best).
+END_OF_LIFE_QUESTIONS = [
+    ("How are you feeling after caring for someone at the end of their life?",
+     ["Really struggling", "It's weighing on me", "Coping okay", "I'm alright"]),
+    ("Have you had a moment to pause and look after yourself since that care?",
+     ["Not at all", "Not really", "A little", "Yes, I have"]),
+]
+END_OF_LIFE_APPOINTMENT = "END_OF_LIFE_CARE"
+RETURN_PLAN_DAYS = 84          # 12-week phased return after maternity leave
+ONBOARDING_DAYS = 90
+
+# Shown to the employee after a low answer (score 1-2). Never mentions risk or scores.
+SUPPORT_MESSAGES = {
+    "end_of_life_care": ("Thank you for the care you gave today",
+                         "Caring for someone at the end of life is hard, even for experienced staff. Take your break, "
+                         "talk to a colleague or your manager, and remember the confidential employee assistance "
+                         "programme is there for you any time."),
+    "maternity_return": ("Coming back takes time",
+                         "Your agreed return-to-work adjustments (predictable shifts, protected breaks) are there for "
+                         "you. If they're not being met, please tell your manager - you can also use the confidential "
+                         "employee assistance programme."),
+    "default": ("Thanks for being honest",
+                "It sounds like things are tough right now. Try to take a proper break, and consider a quick chat "
+                "with your manager or buddy. The confidential employee assistance programme is available any time."),
+}
+
 QUESTION_COLUMNS = """
     q.question_id, q.question_text, q.source, q.trigger_type, q.generated_for_employee_id, q.context_data,
     q.model_name, q.prompt_version, q.is_active, q.expires_at, q.created_at
@@ -134,7 +160,7 @@ def _recent_question_texts(db, employee_id, limit: int = 8) -> list[str]:
 # Writing
 # ---------------------------------------------------------------------------------------------------------
 def _insert_question(cursor, employee_id, text: str, options: list[str], *, source: str, model_name: str | None,
-                     active: bool, context: dict) -> Any:
+                     active: bool, context: dict, trigger_type: str = TRIGGER_TYPE) -> Any:
     expires_at = datetime.now(timezone.utc) + timedelta(hours=settings.CHECKIN_QUESTION_EXPIRY_HOURS) if active else None
     cursor.execute(
         """
@@ -142,7 +168,7 @@ def _insert_question(cursor, employee_id, text: str, options: list[str], *, sour
                               model_name, prompt_version, is_active, expires_at)
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING question_id
         """,
-        (text, source, TRIGGER_TYPE, employee_id, Jsonb(context), model_name, PROMPT_VERSION, active, expires_at),
+        (text, source, trigger_type, employee_id, Jsonb(context), model_name, PROMPT_VERSION, active, expires_at),
     )
     question_id = cursor.fetchone()[0]
     for score, option_text in enumerate(options, start=1):          # worst -> best = 1..4
@@ -161,10 +187,44 @@ def _pick_template(recent_texts: list[str]) -> tuple[str, list[str]]:
     return TEMPLATE_QUESTIONS[len(recent_texts) % len(TEMPLATE_QUESTIONS)]
 
 
+def _pick_eol_question(recent_texts: list[str]) -> tuple[str, list[str]]:
+    for text, options in END_OF_LIFE_QUESTIONS:
+        if text not in recent_texts[:2]:
+            return text, options
+    return END_OF_LIFE_QUESTIONS[0]
+
+
+def checkin_focus(employee: dict) -> tuple[str | None, str]:
+    """(focus, trigger_type) for the employee's next generated question: maternity return, onboarding or none."""
+    today = datetime.now(timezone.utc).date()
+    ret = employee.get("maternity_return_date")
+    if ret and 0 <= (today - ret).days <= RETURN_PLAN_DAYS:
+        return "maternity_return", "MATERNITY_RETURN"
+    hired = employee.get("hire_date")
+    if hired and 0 <= (today - hired).days <= ONBOARDING_DAYS:
+        return "onboarding", "ONBOARDING"
+    return None, TRIGGER_TYPE
+
+
+def support_for_answer(db, question_id, option_id) -> dict | None:
+    """A kind, practical message for the employee after a low answer (1-2 on the 1-4 scale), else None."""
+    row = db.fetch_one(
+        "SELECT o.normalized_score, q.context_data FROM question_option o JOIN question q ON q.question_id = o.question_id "
+        "WHERE o.option_id = %s AND q.question_id = %s",
+        (option_id, question_id),
+    )
+    if not row or row["normalized_score"] is None or float(row["normalized_score"]) > 2:
+        return None
+    focus = (row["context_data"] or {}).get("focus")
+    title, message = SUPPORT_MESSAGES.get(focus) or SUPPORT_MESSAGES["default"]
+    return {"title": title, "message": message}
+
+
 def serve_question(db, employee_id, appointment: dict) -> tuple[dict, str]:
     """
     Return (question, served_from) for an employee who just completed an appointment.
-    served_from: 'open' (already showing), 'queued' (activated now) or 'template' (first time / nothing queued).
+    served_from: 'open' (already showing), 'queued' (activated now), 'template' (first time / nothing queued) or
+    'end_of_life_care' (a debrief question served straight after an end-of-life care appointment).
     """
     connection = db.db_connection()
     try:
@@ -174,7 +234,21 @@ def serve_question(db, employee_id, appointment: dict) -> tuple[dict, str]:
 
             row = find_open_question(db, employee_id)
             served_from = "open"
-            if row is None:
+            is_eol = (appointment.get("appointment_type") or "").upper() == END_OF_LIFE_APPOINTMENT
+            open_is_eol = row is not None and (row.get("context_data") or {}).get("focus") == "end_of_life_care"
+            if is_eol and not open_is_eol:
+                # Debrief now, ahead of any queued question (which stays queued for the next appointment).
+                text, options = _pick_eol_question(_recent_question_texts(db, employee_id))
+                question_id = _insert_question(
+                    cursor, employee_id, text, options, source="TEMPLATE", model_name=None, active=True,
+                    context={"source": "shiftguard-checkin", "queue_status": SERVED, "generated_by": "template",
+                             "focus": "end_of_life_care",
+                             "served_for_appointment_id": str(appointment["appointment_id"])},
+                    trigger_type="POST_SHIFT",
+                )
+                served_from = "end_of_life_care"
+                row = db.fetch_one(f"SELECT {QUESTION_COLUMNS} FROM question q WHERE q.question_id = %s", (question_id,))
+            elif row is None:
                 queued = find_queued_question(db, employee_id)
                 if queued is not None:
                     context = dict(queued["context_data"] or {})
@@ -225,7 +299,15 @@ def _generate_with_gemini(prompt: str) -> tuple[GeneratedQuestion, str]:
     raise RuntimeError(f"No Gemini model produced a question: {last_error}")
 
 
-def _build_prompt(db, employee: dict, appointment: dict | None) -> str:
+FOCUS_PROMPTS = {
+    "maternity_return": "They returned from maternity leave in the last 12 weeks. Gently ask about something that "
+                        "matters for a phased return: protected breaks, predictable shifts, energy, or feeling supported.",
+    "onboarding": "They joined in the last 3 months. Ask about settling in: knowing who to ask, confidence, "
+                  "workload, or feeling part of the team.",
+}
+
+
+def _build_prompt(db, employee: dict, appointment: dict | None, focus: str | None = None) -> str:
     recent = db.fetch_all(
         """
         SELECT q.question_text, o.option_text, o.normalized_score, r.responded_at
@@ -248,6 +330,8 @@ Their recent check-in answers (1 = struggling, 4 = good):
 Questions already asked recently (do NOT repeat or closely paraphrase these):
 {asked}
 
+{("Context: " + FOCUS_PROMPTS[focus]) if focus in FOCUS_PROMPTS else ""}
+
 Rules:
 - Ask about how they are coping right now: energy, rest, breaks, workload, emotional load, support, or sleep.
   Vary the topic. If recent answers are low, gently follow up on that topic.
@@ -266,14 +350,17 @@ def generate_next_question(employee_id, appointment_id=None) -> dict:
     with SupabaseDBConnectionManager() as db:
         if find_queued_question(db, employee_id):
             return {"status": "already_queued"}
-        employee = db.fetch_one("SELECT employee_id, job_role FROM employee WHERE employee_id = %s", (employee_id,))
+        employee = db.fetch_one(
+            "SELECT employee_id, job_role, hire_date, maternity_return_date FROM employee WHERE employee_id = %s",
+            (employee_id,))
+        focus, trigger_type = checkin_focus(employee)
         appointment = None
         if appointment_id:
             appointment = db.fetch_one(
                 "SELECT appointment_id, title, appointment_type FROM appointment WHERE appointment_id = %s",
                 (appointment_id,),
             )
-        prompt = _build_prompt(db, employee, appointment)
+        prompt = _build_prompt(db, employee, appointment, focus)
 
     try:
         generated, model = _generate_with_gemini(prompt)
@@ -295,7 +382,9 @@ def generate_next_question(employee_id, appointment_id=None) -> dict:
                 question_id = _insert_question(
                     cursor, employee_id, text, options, source=source, model_name=model_name, active=False,
                     context={"source": "shiftguard-checkin", "queue_status": QUEUED, "generated_by": generated_by,
+                             "focus": focus,
                              "generated_after_appointment_id": str(appointment_id) if appointment_id else None},
+                    trigger_type=trigger_type,
                 )
             connection.commit()
         except Exception:

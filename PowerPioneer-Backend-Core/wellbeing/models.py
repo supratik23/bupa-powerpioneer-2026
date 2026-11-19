@@ -12,7 +12,8 @@ def Num(null=False):  # noqa: N802 - small factory for schema `numeric` columns
 
 class RiskBand(models.TextChoices):
     LOW = "LOW", "Low"
-    MODERATE = "MODERATE", "Moderate"
+    MEDIUM = "MEDIUM", "Medium"            # written by the XGBoost agent
+    MODERATE = "MODERATE", "Moderate"      # legacy rule-engine name for MEDIUM
     HIGH = "HIGH", "High"
     CRITICAL = "CRITICAL", "Critical"
 
@@ -122,6 +123,14 @@ class ActionType(models.TextChoices):
     REMOVE_MANAGER = "REMOVE_MANAGER", "Remove manager"
     ASSIGN_BUDDY = "ASSIGN_BUDDY", "Assign buddy"
     REMOVE_BUDDY = "REMOVE_BUDDY", "Remove buddy"
+    # Written by the ShiftGuard AI agent (allowed by the Supabase CHECK constraint on intervention.action_type)
+    EMAIL_MANAGER = "EMAIL_MANAGER", "Email manager"
+    EMAIL_BUDDY = "EMAIL_BUDDY", "Email buddy"
+    MANAGER_REVIEW = "MANAGER_REVIEW", "Manager review"
+    EMPLOYEE_NUDGE = "EMPLOYEE_NUDGE", "Employee nudge"
+    FOLLOW_UP_CHECKIN = "FOLLOW_UP_CHECKIN", "Follow-up check-in"
+    HR_ESCALATION = "HR_ESCALATION", "HR escalation"
+    NO_ACTION = "NO_ACTION", "No action"
     OTHER = "OTHER", "Other"
 
 
@@ -131,6 +140,7 @@ class ActionStatus(models.TextChoices):
     COMPLETED = "COMPLETED", "Completed"
     FAILED = "FAILED", "Failed"
     CANCELLED = "CANCELLED", "Cancelled"
+    SKIPPED = "SKIPPED", "Skipped"         # e.g. the agent could not email a buddy because none is assigned
 
 
 class Intervention(TimeStampedModel):

@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import json
 import traceback
@@ -10,6 +11,8 @@ from config import settings
 from langchain.messages import SystemMessage
 from langgraph.prebuilt import ToolNode, tools_condition
 from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.types import Command, interrupt
+from langchain_core.runnables import RunnableConfig
 from collections.abc import Sequence
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, ToolMessage
@@ -256,20 +259,30 @@ def build_shiftguard_agent_graph(
     llm_with_tools: Runnable,
     tools: Sequence[BaseTool],
     checkpointer=None,
+    approval_required: frozenset[str] | set[str] = frozenset(),
 ):
     """
-    ShiftGuard agent graph. No keyword router: every request goes to Gemini with all MCP tools bound,
-    and the LLM decides which tool(s) to call (or answers directly):
+    ShiftGuard agent graph. No keyword router: every request goes to Gemini with all tools bound, and the LLM
+    decides which tool(s) to call (or answers directly). Outward / hard-to-undo tool calls (approval_required) pause
+    at approval_gate (LangGraph interrupt) until the manager approves or declines them:
 
-        START -> shiftguard_agent_node <-> tools -> END
+        START -> shiftguard_agent_node
+        shiftguard_agent_node -> approval_gate            (the model asked for tools)
+        shiftguard_agent_node -> END                      (final answer)
+        approval_gate         -> tools                    (approved, or nothing needed approval)
+        approval_gate         -> shiftguard_agent_node    (declined: a ToolMessage per call says so)
+        tools                 -> shiftguard_agent_node
     """
+    from .approval import describe_action
+
     try:
-        async def shiftguard_agent_node(state: AgentState) -> dict:
+        async def shiftguard_agent_node(state: AgentState, config: RunnableConfig) -> dict:
             try:
+                caller = (config.get("configurable") or {}).get("caller")
                 system = SystemMessage(
-                    content=f"{system_message_for_shiftguard_agent}\n\n{build_shiftguard_context_prompt(state)}"
+                    content=f"{system_message_for_shiftguard_agent}\n\n{build_shiftguard_context_prompt(state, caller)}"
                 )
-                response = await llm_with_tools.ainvoke([system, *state.get("messages", [])])
+                response = await llm_with_tools.ainvoke([system, *state.get("messages", [])], config)
                 if getattr(response, "tool_calls", None):
                     logger.info("Gemini selected tools: %s", [call["name"] for call in response.tool_calls])
                 return {"messages": [response]}
@@ -280,15 +293,55 @@ def build_shiftguard_agent_graph(
                 )
                 raise
 
+        async def approval_gate(state: AgentState) -> Command:
+            last = state["messages"][-1]
+            calls = list(getattr(last, "tool_calls", None) or [])
+            sensitive = [c for c in calls if c["name"] in approval_required]
+            if not sensitive:
+                return Command(goto="tools")
+
+            actions = []
+            for call in sensitive:
+                described = await asyncio.to_thread(describe_action, call["name"], call.get("args") or {})
+                actions.append({"id": call["id"], **described})
+            # Pauses the run here. On resume, interrupt() returns the manager's decision and this node re-runs.
+            decision = interrupt({"type": "approval", "actions": actions})
+            if isinstance(decision, dict):
+                approved, comment = bool(decision.get("approved")), str(decision.get("comment") or "").strip()
+            else:
+                approved, comment = bool(decision), ""
+            if approved:
+                logger.info("Manager approved %s", [c["name"] for c in sensitive])
+                return Command(goto="tools")
+
+            logger.info("Manager declined %s", [c["name"] for c in sensitive])
+            note = f" Their note: {comment}" if comment else ""
+            declined = [
+                ToolMessage(
+                    content=(f"Not done: the manager declined this action.{note} Do not retry it unless they ask."
+                             if c["name"] in approval_required else
+                             "Not run: the manager declined a related action in the same step."),
+                    tool_call_id=c["id"], name=c["name"], status="error",
+                )
+                for c in calls
+            ]
+            return Command(goto="shiftguard_agent_node", update={"messages": declined})
+
+        def after_agent(state: AgentState) -> Literal["approval_gate", "__end__"]:
+            last = state["messages"][-1]
+            return "approval_gate" if getattr(last, "tool_calls", None) else END
+
         workflow = StateGraph(AgentState)
         workflow.add_node("shiftguard_agent_node", shiftguard_agent_node)
+        workflow.add_node("approval_gate", approval_gate, destinations=("tools", "shiftguard_agent_node"))
         workflow.add_node("tools", ToolNode(list(tools), handle_tool_errors=True))
         workflow.add_edge(START, "shiftguard_agent_node")
-        workflow.add_conditional_edges("shiftguard_agent_node", tools_condition, {"tools": "tools", END: END})
+        workflow.add_conditional_edges("shiftguard_agent_node", after_agent, {"approval_gate": "approval_gate", END: END})
         workflow.add_edge("tools", "shiftguard_agent_node")
 
         graph = workflow.compile(checkpointer=checkpointer or checkpoint_saver)
-        logger.info("ShiftGuard agent graph compiled with %d tools.", len(tools))
+        logger.info("ShiftGuard agent graph compiled with %d tools (%d need approval).", len(tools),
+                    len([t for t in tools if t.name in approval_required]))
         return graph
     except Exception as exc:
         logger.exception("Failed to build ShiftGuard agent graph.")
@@ -303,8 +356,9 @@ async def get_agent_graph():
             logger.info("Agent graph is not initialized; building it now.")
             # Previous graph (create_agent based, Ollama/OpenAI): _agent = await agent_graph()
             # Previous Gemini graph with keyword routing: _agent = build_gemini_agent_graph(llm, llm_with_tools, available_tools)
-            from app.main import llm_with_tools, available_tools
-            _agent = build_shiftguard_agent_graph(llm_with_tools, available_tools)
+            from app.main import llm_with_tools, available_tools, approval_required_tools
+            _agent = build_shiftguard_agent_graph(llm_with_tools, available_tools,
+                                                  approval_required=approval_required_tools)
         return _agent
     except Exception:
         logger.exception("Unable to initialize or retrieve the agent graph.")

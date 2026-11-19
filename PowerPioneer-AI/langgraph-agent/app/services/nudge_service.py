@@ -11,6 +11,9 @@ Every nudge served is saved (background thread, so the request stays fast) as:
                      context_data = {kind: SUPPORT_NUDGE, category, emoji, title, message, generated_by}
     question_option  the two buttons: acknowledge (display_order 1), skip (display_order 2)
 No employee_response is written, so nudges never affect the wellbeing score or the risk model.
+
+The acknowledge / skip choice (POST /nudges/{nudge_id}/response) is stored on that question's context_data
+(response, responded_at). The next refill tells Gemini which categories this person tends to act on or skip.
 """
 from __future__ import annotations
 
@@ -110,6 +113,12 @@ def _context(employee_id: str) -> dict:
             "AND shift_end > now() AND shift_start < now() + interval '12 hours' ORDER BY shift_start LIMIT 1",
             (employee_id,),
         )
+        prefs = db.fetch_all(
+            "SELECT context_data ->> 'category' AS category, context_data ->> 'response' AS response, count(*) AS n "
+            "FROM question WHERE generated_for_employee_id = %s AND context_data ->> 'kind' = %s "
+            "AND context_data ? 'response' AND created_at >= now() - interval '30 days' GROUP BY 1, 2",
+            (employee_id, SUPPORT_NUDGE_KIND),
+        )
     now = datetime.now(timezone.utc)
     if shift and shift["shift_start"] <= now:
         hours_in = (now - shift["shift_start"]).total_seconds() / 3600
@@ -120,7 +129,39 @@ def _context(employee_id: str) -> dict:
     else:
         shift_text = "not on shift right now"
     return {"role": (emp or {}).get("job_role") or "healthcare worker", "shift": shift_text,
-            "utc_time": now.strftime("%H:%M")}
+            "utc_time": now.strftime("%H:%M"), "preferences": _preference_text(prefs)}
+
+
+def _preference_text(rows: list[dict]) -> str:
+    """'acts on: hydration, breathing; often skips: posture' from the last 30 days of responses."""
+    stats: dict[str, list[int]] = {}
+    for r in rows:
+        if r["category"]:
+            ack_skip = stats.setdefault(r["category"], [0, 0])
+            ack_skip[0 if r["response"] == "acknowledge" else 1] += int(r["n"])
+    liked = [c for c, (a, k) in stats.items() if a > k]
+    skipped = [c for c, (a, k) in stats.items() if k > a and k >= 2]
+    parts = []
+    if liked:
+        parts.append(f"usually acts on: {', '.join(sorted(liked))}")
+    if skipped:
+        parts.append(f"often skips: {', '.join(sorted(skipped))}")
+    return "; ".join(parts)
+
+
+def record_nudge_response(employee_id: str, nudge_id: str, choice: str) -> bool:
+    """Store acknowledge/skip on the saved nudge. Returns False if the nudge isn't (yet) saved for this employee."""
+    from psycopg.types.json import Jsonb
+    from services.db_service import SupabaseDBConnectionManager
+
+    with SupabaseDBConnectionManager() as db:
+        affected = db.execute(
+            "UPDATE question SET context_data = coalesce(context_data, '{}'::jsonb) || %s "
+            "WHERE question_id = %s AND generated_for_employee_id = %s AND context_data ->> 'kind' = %s",
+            (Jsonb({"response": choice, "responded_at": datetime.now(timezone.utc).isoformat()}), nudge_id,
+             employee_id, SUPPORT_NUDGE_KIND),
+        )
+    return affected > 0
 
 
 def _refill(employee_id: str) -> None:
@@ -138,6 +179,8 @@ Rules:
 - Vary the categories: {', '.join(CATEGORIES)}. Fit the moment (e.g. hydration and rest late in a long or night shift).
 - Warm, practical, non-clinical. Never mention stress scores, risk, burnout, AI or that they are being monitored.
 - Do not repeat these recent titles: {recent or 'none'}.
+- Their past responses: {ctx['preferences'] or 'none yet'}. Lean towards what they act on; offer what they skip
+  rarely and in a fresh way.
 - title max 40 characters, message max 140 characters, action_label 1-4 words (the "I did it" button).
 """
         batch, used_model = None, None

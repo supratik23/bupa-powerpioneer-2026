@@ -51,5 +51,13 @@ export function useSupportNudges(enabled: boolean, intervalMs = NUDGE_INTERVAL_M
     return () => window.clearTimeout(id);
   }, [nudge, visibleMs]);
 
-  return { nudge, visibleMs, dismiss: () => setNudge(null) };
+  /** Acknowledge / skip: hide the nudge and tell the agent (used to personalise later nudges; best effort). */
+  const respond = (choice: "acknowledge" | "skip") => {
+    if (nudge) {
+      void agentApi.post(`/nudges/${nudge.nudge_id}/response`, { choice }).catch(() => undefined);
+    }
+    setNudge(null);
+  };
+
+  return { nudge, visibleMs, dismiss: () => setNudge(null), respond };
 }

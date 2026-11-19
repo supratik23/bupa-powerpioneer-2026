@@ -111,10 +111,11 @@ def compute_wellbeing_score(db, employee_id, d: date) -> float | None:
     return _num(row["wellbeing_score"]) if row and row["responses"] else None
 
 
-def compute_features(db, employee: dict, d: date) -> dict[str, Any]:
+def compute_features(db, employee: dict, d: date, exclude_shift_ids: set[str] | None = None) -> dict[str, Any]:
     """
     Return a dict with all 26 feature keys for `employee` (a row with employee_id, contracted_weekly_hours,
     hire_date, maternity_return_date) at date `d`. Raises NoShiftsInWindow when S30 is empty.
+    exclude_shift_ids: shifts to leave out, for what-if simulations ("what if they didn't work this shift?").
     """
     employee_id = employee["employee_id"]
     end = _utc(d + timedelta(days=1))
@@ -127,6 +128,9 @@ def compute_features(db, employee: dict, d: date) -> dict[str, Any]:
         "ORDER BY shift_start",
         (employee_id, start_90, end),
     )
+    if exclude_shift_ids:
+        excluded = {str(i) for i in exclude_shift_ids}
+        shifts_90 = [s for s in shifts_90 if str(s["shift_id"]) not in excluded]
     shifts_30 = [s for s in shifts_90 if s["shift_start"] >= start_30]
     if not shifts_30:
         raise NoShiftsInWindow(f"Employee {employee_id} has no shifts between {date_30} and {d}.")

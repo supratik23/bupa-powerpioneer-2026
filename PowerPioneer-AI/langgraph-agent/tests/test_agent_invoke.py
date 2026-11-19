@@ -1,31 +1,33 @@
-import pytest
+"""
+/agent/invoke and /agent/stream require a manager/HR login (Django JWT) unless AGENT_REQUIRE_AUTH=false.
+
+    .venv\\Scripts\\python -m pytest tests/test_agent_invoke.py -q
+"""
+from unittest import mock
+
 from fastapi.testclient import TestClient
+
 from app.main import app
 
+client = TestClient(app)   # no `with`: the lifespan (Gemini, model, tools) is not started for these checks
+
+REQUEST = {"query": "Who needs attention?", "session_id": "test_session_123", "user_id": "u1",
+           "organization_id": "bupa", "organization_name": "Bupa"}
 
 
-# cmd: python3 -m pytest tests/test_agent_invoke.py
+def test_invoke_requires_login():
+    with mock.patch("app.mcp_client.agent.settings.AGENT_REQUIRE_AUTH", True):
+        response = client.post("/agent/invoke", json=REQUEST)
+    assert response.status_code == 401
 
-client = TestClient(app)
 
-def test_invoke_agent():
-    """Test the /agent/invoke POST endpoint with a valid request body."""
-    request_data = {
-        "query": "What is the capital of France?",
-        "session_id": "test_session_123",
-        "user_id": "test_user_456",
-        "organization_id": "test_org_789",
-        "organization_name": "Test Organization"
-    }
+def test_stream_requires_login():
+    with mock.patch("app.mcp_client.agent.settings.AGENT_REQUIRE_AUTH", True):
+        response = client.post("/agent/stream", json={"session_id": "s", "query": "hi"})
+    assert response.status_code == 401
 
-    response = client.post("/agent/invoke", json=request_data)
 
-    # Assuming the app starts successfully, this should return 200
-    # In a real test, you might need to mock dependencies if startup fails
-    assert response.status_code in [200, 500]  # 500 if dependencies not set up
-    if response.status_code == 200:
-        response_data = response.json()
-        print("Response Data:", response_data)
-        assert "response" in response_data
-        assert isinstance(response_data["response"], str)
-        assert "token_usage" in response_data
+def test_briefing_requires_login():
+    with mock.patch("app.mcp_client.agent.settings.AGENT_REQUIRE_AUTH", True):
+        response = client.get("/briefing/latest")
+    assert response.status_code == 401

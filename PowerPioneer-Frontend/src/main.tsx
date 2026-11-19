@@ -6,6 +6,7 @@ import "./integration.css";
 import "./timeline.css";
 import "./theme-evening.generated.css";
 import "./daypart.css";
+import "./copilot.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

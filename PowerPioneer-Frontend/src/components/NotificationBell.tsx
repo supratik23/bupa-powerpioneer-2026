@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Bell, CheckCheck, Mail } from "lucide-react";
-import { api } from "../api/client";
+import { api, getFreshAccessToken } from "../api/client";
+import { wsUrl } from "../api/config";
 import type { Inbox, InboxItem } from "../api/types";
 import { useAuth } from "../auth/AuthContext";
 import type { PageId } from "../lib/nav";
@@ -52,6 +53,46 @@ export function NotificationBell({ navigate }: { navigate: (page: PageId) => voi
       if (document.visibilityState === "visible") void load();
     }, POLL_MS);
     return () => window.clearInterval(id);
+  }, [user, load]);
+
+  // Real-time push (ws/notifications/): Django and the AI agent notify here the moment they act.
+  // Polling above stays as the fallback when the socket is down.
+  useEffect(() => {
+    if (!user) return;
+    let socket: WebSocket | null = null;
+    let retry: number | undefined;
+    let attempts = 0;
+    let stopped = false;
+
+    const connect = async () => {
+      const token = await getFreshAccessToken();
+      if (stopped || !token) return;
+      socket = new WebSocket(wsUrl(`/ws/notifications/?token=${encodeURIComponent(token)}`));
+      socket.onopen = () => {
+        attempts = 0;
+      };
+      socket.onmessage = (message) => {
+        try {
+          const data = JSON.parse(message.data as string) as { type?: string; kind?: string };
+          if (data.type !== "notification") return;
+          if (data.kind === "briefing") window.dispatchEvent(new Event("shiftguard:briefing"));
+          void load();
+        } catch {
+          /* ignore malformed frames */
+        }
+      };
+      socket.onclose = () => {
+        if (stopped) return;
+        attempts += 1;
+        retry = window.setTimeout(() => void connect(), Math.min(30_000, 2_000 * attempts));
+      };
+    };
+    void connect();
+    return () => {
+      stopped = true;
+      window.clearTimeout(retry);
+      socket?.close();
+    };
   }, [user, load]);
 
   const acknowledge = async (employeeId?: string) => {

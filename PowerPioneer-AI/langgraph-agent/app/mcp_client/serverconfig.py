@@ -28,6 +28,10 @@ mcp_servers_config = {
     "shiftguard_checkin": stdio_server("checkin_tool.py"),
     # send_notification_email
     "send_notification_email": stdio_server("notifsend_tool.py"),
+    # simulate_risk, review_upcoming_roster, list_shifts, suggest_shift_cover, reassign_shift, list_leave_requests,
+    # review_leave_request, decide_leave_request, suggest_buddy, assign_buddy, search_wellbeing_guidance
+    "shiftguard_planning": stdio_server("planning_tool.py"),
 }
+# Only used when AGENT_TOOL_MODE=mcp. The default (inprocess) calls the same functions directly: app/tools/registry.py
 
 multi_server_mcp_client = MultiServerMCPClient(mcp_servers_config)

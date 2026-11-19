@@ -197,12 +197,12 @@ export interface AgentCheckinQuestionResponse {
   appointment_id: UUID;
   /** null when the appointment belongs to someone else (e.g. a manager completed it). */
   question: Question | null;
-  served_from?: "open" | "queued" | "template";
+  served_from?: "open" | "queued" | "template" | "end_of_life_care";
   next_question?: "generating" | "already_queued";
   reason?: string;
 }
 
-/** GET {agent}/nudges/next - supportive on-screen nudge; the choice is not sent back. */
+/** GET {agent}/nudges/next - supportive on-screen nudge; the choice goes to POST /nudges/{id}/response. */
 export interface SupportNudge {
   nudge_id: string;
   category: string;
@@ -232,6 +232,47 @@ export interface AgentCheckinAnswerResponse {
   } | null;
   risk_skipped_reason: string | null;
   actions: { intervention_id: UUID; action_type: string; action_status: string; target_role: string }[];
+  /** A kind message for the employee after a low answer (never includes risk). */
+  support?: { title: string; message: string } | null;
+}
+
+// ---------------------------------------------------------------------------
+// AI copilot (agent /agent/stream, /briefing/*)
+// ---------------------------------------------------------------------------
+/** One action the agent wants to take that needs the manager's approval. */
+export interface ApprovalAction {
+  id: string;
+  tool: string;
+  title: string;
+  details: Record<string, string | null>;
+  /** Email body, when the action sends an email. */
+  preview?: string | null;
+}
+
+/** Server-Sent Events from POST {agent}/agent/stream. */
+export type AgentStreamEvent =
+  | { type: "step"; status: "start"; id: string; tool: string; label: string }
+  | { type: "step"; status: "end" | "declined"; id: string; tool: string; ok: boolean }
+  | { type: "token"; text: string }
+  | { type: "thinking_reset" }
+  | { type: "approval"; actions: ApprovalAction[] }
+  | { type: "message"; text: string }
+  | { type: "error"; message: string }
+  | { type: "done" };
+
+export interface ManagerBriefing {
+  manager: string;
+  generated_at: string;
+  headline: string;
+  /** Markdown bullet list. */
+  text: string;
+  generated_by: "gemini" | "template";
+  changes: { name: string; from: string; to: string; direction: "up" | "down"; drivers: string[] }[];
+  still_high: { name: string; band: string; drivers: string[] }[];
+  return_to_work_alerts: string[];
+  open_follow_ups: number;
+  team_size: number;
+  rescored: number;
 }
 
 export interface QuestionOption {

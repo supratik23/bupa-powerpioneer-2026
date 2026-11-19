@@ -1,5 +1,6 @@
 from datetime import timedelta
 from fastmcp import FastMCP
+from services.access_scope import team_filter_sql
 from services.db_service import SupabaseDBConnectionManager
 from services.risk_feature_service import NoShiftsInWindow, _utc
 from services.risk_model_service import get_risk_model, score_employee
@@ -79,10 +80,11 @@ def predict_risk_for_all_employees(as_of_date: str = "", save: bool = True, depa
     try:
         d = parse_date(as_of_date)
         get_risk_model()  # fail fast if the artifacts are missing
-        params = [_utc(d - timedelta(days=29)), _utc(d + timedelta(days=1))]
-        dept_sql = ""
+        team_sql, team_params = team_filter_sql("e")
+        params = [_utc(d - timedelta(days=29)), _utc(d + timedelta(days=1)), *team_params]
+        dept_sql = team_sql
         if department.strip():
-            dept_sql = "AND lower(e.department) = lower(%s)"
+            dept_sql += " AND lower(e.department) = lower(%s)"
             params.append(department.strip())
 
         results, skipped, errors = [], [], []
@@ -144,6 +146,7 @@ def list_at_risk_employees(min_band: str = "HIGH", snapshot_date: str = "") -> s
         min_band = (min_band or "HIGH").upper()
         if min_band not in RISK_BAND_ORDER:
             raise ToolInputError("min_band must be one of LOW, MEDIUM, HIGH, CRITICAL.")
+        team_sql, team_params = team_filter_sql("e")
         with SupabaseDBConnectionManager() as db:
             if snapshot_date:
                 d = parse_date(snapshot_date)
@@ -151,14 +154,15 @@ def list_at_risk_employees(min_band: str = "HIGH", snapshot_date: str = "") -> s
                 row = db.fetch_one(
                     "SELECT max(s.snapshot_date) AS d FROM employee_risk_snapshot s "
                     "JOIN risk_prediction p ON p.risk_snapshot_id = s.risk_snapshot_id "
-                    "WHERE s.is_training_record = false AND p.model_name = %s",
-                    (XGBOOST_MODEL_NAME,),
+                    "JOIN employee e ON e.employee_id = p.employee_id "
+                    f"WHERE s.is_training_record = false AND p.model_name = %s {team_sql}",
+                    (XGBOOST_MODEL_NAME, *team_params),
                 )
                 if not row or not row["d"]:
                     return "No live XGBoost predictions saved yet. Run predict_risk_for_all_employees first."
                 d = row["d"]
             rows = db.fetch_all(
-                """
+                f"""
                 SELECT DISTINCT ON (p.employee_id)
                        p.employee_id, e.first_name || ' ' || e.last_name AS name, e.email, e.department,
                        m.email AS manager_email, p.prediction_id, p.risk_band, p.risk_score, p.predicted_at
@@ -166,10 +170,10 @@ def list_at_risk_employees(min_band: str = "HIGH", snapshot_date: str = "") -> s
                 JOIN employee_risk_snapshot s ON s.risk_snapshot_id = p.risk_snapshot_id
                 JOIN employee e ON e.employee_id = p.employee_id
                 LEFT JOIN employee m ON m.employee_id = e.manager_employee_id
-                WHERE p.model_name = %s AND s.is_training_record = false AND s.snapshot_date = %s
+                WHERE p.model_name = %s AND s.is_training_record = false AND s.snapshot_date = %s {team_sql}
                 ORDER BY p.employee_id, p.predicted_at DESC
                 """,
-                (XGBOOST_MODEL_NAME, d),
+                (XGBOOST_MODEL_NAME, d, *team_params),
             )
             selected = [r for r in rows if RISK_BAND_ORDER.get(r["risk_band"], 0) >= RISK_BAND_ORDER[min_band]]
             selected.sort(key=lambda r: r["risk_score"], reverse=True)

@@ -3,16 +3,19 @@ import type { SupportNudge } from "../api/types";
 
 /**
  * Popup in the same style as the check-in panel, with two buttons (acknowledge / skip).
- * The choice only closes the popup: nothing is sent to the backend.
+ * The choice is sent to the agent (onRespond), which uses it to pick nudges this person finds useful.
+ * It never affects the wellbeing score. Closing the popup (X / backdrop) sends nothing.
  * Without a response it hides itself after `visibleMs` (the bar under the header shows the time left).
  */
 export function SupportNudgePopup({
   nudge,
   onClose,
+  onRespond,
   visibleMs,
 }: {
   nudge: SupportNudge | null;
   onClose: () => void;
+  onRespond?: (choice: "acknowledge" | "skip") => void;
   visibleMs: number;
 }) {
   if (!nudge) return null;
@@ -51,7 +54,7 @@ export function SupportNudgePopup({
           </div>
           <div className="checkin-options" style={{ gridTemplateColumns: `repeat(${nudge.options.length}, minmax(58px, 1fr))` }}>
             {nudge.options.map((option) => (
-              <button key={option.id} onClick={onClose}>
+              <button key={option.id} onClick={() => (onRespond ? onRespond(option.id) : onClose())}>
                 <span className="checkin-emoji" aria-hidden="true">
                   {option.id === "skip" ? "⏭️" : "✅"}
                 </span>
@@ -61,7 +64,7 @@ export function SupportNudgePopup({
           </div>
           <p className="one-tap-note">
             <Sparkles size={13} />
-            Just for you - your choice isn't recorded.
+            Just for you - your choice only helps us suggest nudges you find useful.
           </p>
         </div>
       </aside>

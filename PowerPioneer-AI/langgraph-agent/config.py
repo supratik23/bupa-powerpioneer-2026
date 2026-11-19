@@ -72,6 +72,20 @@ class Settings(BaseSettings):
     BACKEND_API_BASE_URL: str = "http://127.0.0.1:8000/api"   # Django API, used to verify the caller's login token
     AGENT_REQUIRE_AUTH: bool = True   # False lets Swagger/curl pass employee_id without a token (local testing only)
 
+    # How the chat agent runs its tools: "inprocess" (default, fast: the tool functions are called directly in this
+    # process) or "mcp" (each call goes through the stdio MCP servers in app/mcp_server; ~10 s per call).
+    AGENT_TOOL_MODE: str = "inprocess"
+
+    # Shared secret for agent -> Django calls (POST /api/internal/notify/ pushes a bell notification over WebSocket).
+    # Must match AGENT_INTERNAL_KEY in PowerPioneer-Backend-Core/.env. The default only suits local demos.
+    AGENT_INTERNAL_KEY: str = "shiftguard-local-agent-key"
+
+    # Daily manager briefing. BRIEFING_ENABLED runs it automatically every day at BRIEFING_HOUR_UTC; it can always be
+    # run on demand with POST /briefing/run. BRIEFING_SEND_EMAIL also emails each manager their briefing.
+    BRIEFING_ENABLED: bool = False
+    BRIEFING_HOUR_UTC: int = 6
+    BRIEFING_SEND_EMAIL: bool = False
+
 
     class Config:
         env_file = ENV_FILE

@@ -1,5 +1,6 @@
 from datetime import timedelta
 from fastmcp import FastMCP
+from services.access_scope import team_filter_sql
 from services.db_service import SupabaseDBConnectionManager
 from services.shiftguard_repository import (
     EMPLOYEE_COLUMNS, EMPLOYEE_FROM, ToolInputError, dumps, latest_xgboost_prediction, parse_date,
@@ -31,7 +32,8 @@ def find_employees(search: str = "", department: str = "", only_with_recent_shif
     """
     try:
         limit = max(1, min(int(limit), 100))
-        where, params = ["e.is_active = true"], []
+        team_sql, params = team_filter_sql("e")
+        where = ["e.is_active = true" + team_sql]
         if search.strip():
             where.append("((e.first_name || ' ' || e.last_name) ILIKE %s OR e.email ILIKE %s OR e.employee_number ILIKE %s)")
             params += [f"%{search.strip()}%"] * 3
@@ -74,7 +76,7 @@ def get_employee_details(employee: str, as_of_date: str = "") -> str:
         with SupabaseDBConnectionManager() as db:
             row = resolve_employee(db, employee)
             shifts = db.fetch_all(
-                "SELECT shift_start, shift_end, planned_hours, actual_hours, shift_type, location, "
+                "SELECT shift_id, shift_start, shift_end, planned_hours, actual_hours, shift_type, location, "
                 "missed_break_flag, short_notice_change_flag FROM shift_roster "
                 "WHERE employee_id = %s AND shift_start >= %s AND shift_start < %s ORDER BY shift_start",
                 (row["employee_id"], _utc(d - timedelta(days=29)), _utc(d + timedelta(days=8))),
@@ -95,8 +97,8 @@ def get_employee_details(employee: str, as_of_date: str = "") -> str:
                 "short_notice_changes": sum(1 for s in past if s["short_notice_change_flag"]),
             },
             "next_7_days": [
-                {"shift_start": s["shift_start"], "shift_end": s["shift_end"], "shift_type": s["shift_type"],
-                 "location": s["location"]}
+                {"shift_id": s["shift_id"], "shift_start": s["shift_start"], "shift_end": s["shift_end"],
+                 "shift_type": s["shift_type"], "location": s["location"]}
                 for s in upcoming
             ],
             "latest_risk": to_jsonable(latest),

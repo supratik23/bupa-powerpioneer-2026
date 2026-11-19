@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   ArrowDownRight,
@@ -11,6 +11,7 @@ import {
   ChevronRight,
   Clock3,
   Heart,
+  HeartHandshake,
   HeartPulse,
   Info,
   Leaf,
@@ -61,6 +62,7 @@ import { RosterTimelineDrawer } from "./components/DayTimeline";
 import { DayPlan } from "./components/DayPlan";
 import { SupportNudgePopup } from "./components/SupportNudge";
 import { NotificationBell } from "./components/NotificationBell";
+import { AgentCopilot } from "./components/AgentCopilot";
 import { useSupportNudges } from "./lib/useSupportNudges";
 import { ReturnToWorkTeam } from "./components/ReturnToWork";
 import { isCompleted, shiftDay } from "./lib/appointments";
@@ -674,6 +676,12 @@ function EmployeeView({
   const [demoIndex, setDemoIndex] = useState<number | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [checkInError, setCheckInError] = useState<string | null>(null);
+  // Kind message from the agent after a low check-in answer (never includes risk).
+  const [support, setSupport] = useState<{ title: string; message: string } | null>(null);
+  const supportRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (support) supportRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [support]);
   const [timelineOpen, setTimelineOpen] = useState(false);
   const closeTimeline = useCallback(() => setTimelineOpen(false), []);
   const [selectedShiftId, setSelectedShiftId] = useState<string | null>(null);
@@ -710,10 +718,11 @@ function EmployeeView({
     setCheckInError(null);
     try {
       try {
-        await agentApi.post<AgentCheckinAnswerResponse>("/checkin/answer", {
+        const res = await agentApi.post<AgentCheckinAnswerResponse>("/checkin/answer", {
           question_id: nudge.id,
           option_id: optionId,
         });
+        setSupport(res.support ?? null);
       } catch (err) {
         // Agent unreachable or failing: still save the answer in Django so it is not lost;
         // it is included in the next risk calculation.
@@ -933,6 +942,18 @@ function EmployeeView({
               Small check-ins placed around natural pauses in your day.
             </p>
             <ErrorNote message={pending.error ?? checkInError} onRetry={pending.error ? pending.reload : undefined} />
+            {support && (
+              <div className="checkin-support" role="status" ref={supportRef}>
+                <HeartHandshake size={20} />
+                <div>
+                  <strong>{support.title}</strong>
+                  <p>{support.message}</p>
+                </div>
+                <button onClick={() => setSupport(null)} aria-label="Dismiss">
+                  <X size={16} />
+                </button>
+              </div>
+            )}
             {pending.loading ? (
               <Loading text="Loading check-ins…" />
             ) : wellbeingNudges.length === 0 ? (
@@ -1617,7 +1638,14 @@ function Shell() {
       {current === "team-roster" && <RosterPage key="team-roster" initialTab="shifts" />}
       {current === "leave" && <LeavePage />}
       {current === "admin" && <AdminPage />}
-      <SupportNudgePopup nudge={supportNudges.nudge} onClose={supportNudges.dismiss} visibleMs={supportNudges.visibleMs} />
+      <SupportNudgePopup
+        nudge={supportNudges.nudge}
+        onClose={supportNudges.dismiss}
+        onRespond={supportNudges.respond}
+        visibleMs={supportNudges.visibleMs}
+      />
+      {/* Manager copilot (LangGraph agent): managers and HR, on the team-facing pages */}
+      {isManager && (current === "manager" || current === "team-roster" || current === "admin") && <AgentCopilot />}
     </div>
   );
 }

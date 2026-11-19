@@ -6,7 +6,7 @@
  * - Normalises DRF error bodies into a readable message (ApiError.message).
  */
 import { AGENT_BASE_URL, apiUrl } from "./config";
-import type { Paginated } from "./types";
+import type { AgentStreamEvent, Paginated } from "./types";
 
 const ACCESS_KEY = "pp.access";
 const REFRESH_KEY = "pp.refresh";
@@ -229,6 +229,66 @@ export const agentApi = {
   post: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: "POST", body: body ?? {}, baseUrl: AGENT_BASE_URL }),
 };
+
+/**
+ * POST {agent}/agent/stream and call onEvent for every Server-Sent Event (steps, tokens, approval, answer).
+ * EventSource can't POST or send headers, so this reads the fetch body stream. Refreshes the token once on 401.
+ */
+export async function agentStream(
+  body: { session_id: string; query?: string; resume?: { approved: boolean; comment?: string } },
+  onEvent: (event: AgentStreamEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const post = async () =>
+    fetch(`${AGENT_BASE_URL}/agent/stream`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "text/event-stream",
+        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+      },
+      body: JSON.stringify({ organization_name: "Bupa", ...body }),
+      signal,
+    });
+
+  let res = await post();
+  if (res.status === 401 && refreshToken && (await refreshAccessToken())) res = await post();
+  if (!res.ok || !res.body) {
+    const text = await res.text();
+    let data: unknown = text;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      /* plain text */
+    }
+    throw new ApiError(res.status, data, `Assistant request failed (${res.status})`);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let end: number;
+    while ((end = buffer.indexOf("\n\n")) !== -1) {
+      const frame = buffer.slice(0, end);
+      buffer = buffer.slice(end + 2);
+      const data = frame
+        .split("\n")
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.slice(5).trimStart())
+        .join("\n");
+      if (!data) continue;
+      try {
+        onEvent(JSON.parse(data) as AgentStreamEvent);
+      } catch {
+        /* ignore a malformed frame */
+      }
+    }
+  }
+}
 
 /** Accepts either a paginated DRF response or a plain array. */
 export function unwrap<T>(data: Paginated<T> | T[]): T[] {

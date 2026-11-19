@@ -1,82 +1,119 @@
 # FastAPI application level api url setup and app lifecycle management
 
+import asyncio
 import logging
-from contextlib import asynccontextmanager
-from fastapi import FastAPI
-from fastapi import APIRouter
-from fastapi.responses import JSONResponse
-from fastapi.middleware.cors import CORSMiddleware
-from .mcp_client.agent import agent_router
-from .api.checkin import checkin_router   # also puts app/ on sys.path for the shared `services.*` imports
-from .api.nudges import nudge_router
-from .mcp_client.serverconfig import multi_server_mcp_client
-from .prompts.prompt_file import system_message_for_tooling_agent, system_message_for_generic_agent
-from langchain.agents import create_agent
-from app.services.llm_service import get_openai_llm, get_ollama_llm, get_gemini_llm, get_gemini_llm_with_tools, get_gemini_llm_with_fallbacks
-from .mcp_client.graph import get_agent_graph
+import os
+import sys
 import traceback
+from contextlib import asynccontextmanager
+
+# The shared services and tools are imported as top-level packages (services.*, mcp_server.*, tools.*), the same
+# way the stdio MCP servers import them, so app/ must be on sys.path before anything else is imported.
+_APP_DIR = os.path.dirname(os.path.abspath(__file__))
+if _APP_DIR not in sys.path:
+    sys.path.insert(0, _APP_DIR)
+
+from fastapi import APIRouter, FastAPI  # noqa: E402
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+from fastapi.responses import JSONResponse  # noqa: E402
+from langchain.agents import create_agent  # noqa: E402
+
+from config import settings  # noqa: E402
+from .api.briefing import briefing_router  # noqa: E402
+from .api.checkin import checkin_router  # noqa: E402
+from .api.nudges import nudge_router  # noqa: E402
+from .mcp_client.agent import agent_router  # noqa: E402
+from .mcp_client.graph import get_agent_graph  # noqa: E402
+from .prompts.prompt_file import system_message_for_generic_agent, system_message_for_tooling_agent  # noqa: E402
+from app.services.llm_service import get_gemini_llm, get_gemini_llm_with_fallbacks  # noqa: E402
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 available_tools = []
+approval_required_tools: frozenset[str] = frozenset()
 llm_agent_with_tools = None
 generic_llm_agent = None
 llm = None              # Gemini LLM without tools (generic agent)
-llm_with_tools = None   # Gemini LLM with MCP tools bound (tool agent)
+llm_with_tools = None   # Gemini LLM with the ShiftGuard tools bound (tool agent)
+
+
+async def _load_tools() -> list:
+    """In-process tools (default, fast) or the stdio MCP servers (AGENT_TOOL_MODE=mcp)."""
+    if settings.AGENT_TOOL_MODE.strip().lower() == "mcp":
+        from .mcp_client.serverconfig import multi_server_mcp_client
+        tools = await multi_server_mcp_client.get_tools()
+        logger.info("Loaded %d MCP tools (stdio): %s", len(tools), [t.name for t in tools])
+        return tools
+    from tools.registry import get_inprocess_tools
+    tools = get_inprocess_tools()     # main thread: loads numpy/xgboost here (a worker-thread first import deadlocks on Windows)
+    logger.info("Loaded %d in-process tools: %s", len(tools), [t.name for t in tools])
+    return tools
+
+
+async def _daily_briefings():
+    """Background loop: build every manager's briefing at BRIEFING_HOUR_UTC each day."""
+    from services.briefing_service import run_all_briefings, seconds_until
+
+    while True:
+        delay = seconds_until(settings.BRIEFING_HOUR_UTC)
+        logger.info("Next daily briefing run in %.0f minutes", delay / 60)
+        await asyncio.sleep(delay)
+        try:
+            await asyncio.to_thread(run_all_briefings, True)
+        except Exception:
+            logger.exception("Daily briefing run failed")
+
 
 @asynccontextmanager
-async def lifespan(app: FastAPI): 
+async def lifespan(app: FastAPI):
     """
-    Application lifespan management for startup and shutdown events. 
-    Start the mcp_server tools and LLM agent on application startup, and perform any necessary cleanup on shutdown.
+    Application lifespan management for startup and shutdown events.
+    Load the tools and LLM agent on application startup, and perform any necessary cleanup on shutdown.
     """
+    briefing_task = None
     try:
-        global available_tools, llm_agent_with_tools, generic_llm_agent, llm, llm_with_tools
+        global available_tools, approval_required_tools, llm_agent_with_tools, generic_llm_agent, llm, llm_with_tools
 
-        # Fetch the list of available tools from the MCP server client
-        available_tools = await multi_server_mcp_client.get_tools()
-        logger.info(f"Loaded {len(available_tools)} MCP tools: {[tool.name for tool in available_tools]}")
-
-        # get the LLM model
-        # llm = get_openai_llm()
-        # llm = get_ollama_llm()
-        llm = get_gemini_llm()
-
-        # Gemini LLM with the MCP tools bound - used by the tool agent node of the Gemini agent graph
-        # llm_with_tools = get_gemini_llm_with_tools(available_tools, llm=llm)
-        # Same, but falls back to GEMINI_FALLBACK_MODELS when the primary model is overloaded (503) or rate limited (429)
-        llm_with_tools = get_gemini_llm_with_fallbacks(available_tools)
-
-        # Create 2 LLM agents - one  with the available tools and other just a generic agent without tools. Both agents have different system prompts to guide their behavior.
-        # (used by the previous create_agent based graph `agent_graph()` in graph.py)
-        llm_agent_with_tools = create_agent(llm, available_tools, system_prompt=system_message_for_tooling_agent)
-        generic_llm_agent = create_agent(llm, [], system_prompt=system_message_for_generic_agent)
-
-        # Build the Gemini agent graph at startup so configuration errors surface immediately
-        await get_agent_graph()
-
-        # Load the XGBoost risk model in the main thread (used by /checkin/answer). A first-time numpy import
-        # inside a worker thread deadlocks on Windows, so it must not happen lazily in a request.
+        # Load the XGBoost risk model in the main thread first (used by /checkin/answer and the risk tools).
         from services.risk_model_service import get_risk_model
         get_risk_model()
 
-        logger.info("application_starting")
+        available_tools = await _load_tools()
+        from tools.registry import APPROVAL_REQUIRED
+        approval_required_tools = APPROVAL_REQUIRED
 
+        llm = get_gemini_llm()
+        # Falls back to GEMINI_FALLBACK_MODELS when the primary model is overloaded (503) or rate limited (429)
+        llm_with_tools = get_gemini_llm_with_fallbacks(available_tools)
+
+        # Legacy create_agent based agents (used by the previous `agent_graph()` in graph.py)
+        llm_agent_with_tools = create_agent(llm, available_tools, system_prompt=system_message_for_tooling_agent)
+        generic_llm_agent = create_agent(llm, [], system_prompt=system_message_for_generic_agent)
+
+        # Build the agent graph at startup so configuration errors surface immediately
+        await get_agent_graph()
+
+        if settings.BRIEFING_ENABLED:
+            briefing_task = asyncio.create_task(_daily_briefings())
+
+        logger.info("application_starting")
         yield
     except Exception as e:
         logger.error(f"Error during application startup: {e}")
         logger.error(traceback.format_exc())
         raise e
     finally:
+        if briefing_task:
+            briefing_task.cancel()
         logger.info("application_shutting_down")
 
 # ----------------------------------------------------------------------------------------
 
 app = FastAPI(
-    title="Langgraph Agent API",
-    description="AI Agent with FastAPI, LangGraph, and MCP. Works for B2B and B2C scenarios.",
-    version="0.1.0",
+    title="ShiftGuard Agent API",
+    description="ShiftGuard wellbeing agent: check-ins, nudges, manager copilot (LangGraph + Gemini) and briefings.",
+    version="0.2.0",
     lifespan=lifespan,
 )
 
@@ -92,19 +129,24 @@ api_router = APIRouter()
 app.include_router(agent_router, prefix="/agent", tags=["agent"])
 app.include_router(checkin_router, prefix="/checkin", tags=["checkin"])
 app.include_router(nudge_router, prefix="/nudges", tags=["nudges"])
+app.include_router(briefing_router, prefix="/briefing", tags=["briefing"])
+
 
 @app.get("/health")
 async def health_check():
     return JSONResponse(
         content={
             "status": "healthy",
+            "tools": len(available_tools),
+            "tool_mode": settings.AGENT_TOOL_MODE,
         }
     )
+
 
 @app.get("/")
 async def root():
     return {
         "message": "AI Agent API",
         "docs": "/docs",
-        "version": "0.1.0",
+        "version": "0.2.0",
     }

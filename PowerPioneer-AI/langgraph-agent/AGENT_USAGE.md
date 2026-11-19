@@ -66,7 +66,7 @@ Email interventions start as `PENDING` and become `COMPLETED`, or `FAILED` with 
 
 ## Supportive nudges (popup every minute)
 
-Supportive nudges are small prompts such as "Time for some water" or "Stretch your legs", with two buttons (an acknowledge button whose label Gemini writes, and Skip). The choice is handled only in the browser: it is not sent back, and no action is triggered.
+Supportive nudges are small prompts such as "Time for some water" or "Stretch your legs", with two buttons (an acknowledge button whose label Gemini writes, and Skip). The choice is sent to `POST /nudges/{nudge_id}/response` (`{"choice": "acknowledge" | "skip"}`) and stored on that nudge's `context_data` (`response`, `responded_at`), never as an `employee_response`, so it doesn't affect the wellbeing score. The next pool refill tells Gemini which categories the person usually acts on or skips (last 30 days).
 
 - **Stored in `question`.** Every nudge served is saved in a background thread: one `question` row (`question_id` = `nudge_id`, `trigger_type = 'ADHOC'`, `source` `GEMINI` or `TEMPLATE`, `model_name`, `prompt_version = 'shiftguard-nudge-v1'`, `is_active = false`, `context_data = {kind: "SUPPORT_NUDGE", category, emoji, title, message, generated_by}`) plus the two buttons as `question_option` rows. Because they are inactive, nudges never show up as pending check-ins, and since no `employee_response` is written they never affect the wellbeing score. Query them with `context_data ->> 'kind' = 'SUPPORT_NUDGE'`. A failed save is only logged; the popup is still shown.
 
@@ -75,17 +75,54 @@ Supportive nudges are small prompts such as "Time for some water" or "Stretch yo
 - **Login cache.** Verified tokens are cached for 2 minutes, so per-minute polling doesn't call Django `/auth/me/` every time.
 - **Frontend.** `src/lib/useSupportNudges.ts` starts a timer when the user signs in, and again after a reload. It runs on every page and calls the agent every `VITE_NUDGE_INTERVAL_MS` (default 60000 ms). A tick is skipped while the tab is hidden, while a nudge is still showing, or while a check-in question is open, so popups never stack. `src/components/SupportNudge.tsx` renders the popup in the same style as the check-in panel.
 
+## Context-aware check-ins
+
+- **End-of-life care.** Completing an `END_OF_LIFE_CARE` appointment serves a debrief question straight away (`served_from: "end_of_life_care"`, `trigger_type = 'POST_SHIFT'`, `context_data.focus = 'end_of_life_care'`). Any queued question stays queued for the next appointment.
+- **Maternity return / onboarding.** For people back from maternity leave in the last 12 weeks, or hired in the last 90 days, Gemini's next question focuses on that (`MATERNITY_RETURN` / `ONBOARDING` trigger type).
+- **Support after a low answer.** When the answer scores 1-2, `/checkin/answer` returns `support: {title, message}` (EAP, take your break, talk to your manager, with end-of-life and maternity variants). The app shows it under "Your wellbeing rhythm". It never mentions risk.
+
+## Manager copilot (chat agent)
+
+Managers (anyone with direct reports) and HR (`is_staff`) see an **Ask ShiftGuard AI** button on the Team, Team roster and Admin pages (`src/components/AgentCopilot.tsx`).
+
+- **`POST /agent/stream`** (Server-Sent Events) with `{"session_id", "query"}` streams `step` (tool start/end, with a friendly label), `token`, `approval`, `message`, `error` and `done` events. `POST /agent/invoke` is the same agent as one JSON response (`pending_approval` is set while paused).
+- **Login and scope.** Both need the Django token; employees without reports get 403. Managers only see their own team: every tool checks it (`services/access_scope.py`), and HR sees everyone. The conversation thread is keyed by caller and `session_id`.
+- **Approval before acting.** `send_notification_email`, `reassign_shift`, `decide_leave_request` and `assign_buddy` pause the graph (LangGraph `interrupt()` in `approval_gate`). The UI shows what will happen, including the full email text, and the manager approves or declines: `{"session_id", "resume": {"approved": true|false, "comment"}}`. A declined action reaches the model as a tool result containing the manager's note. Asking a new question while an approval is pending declines it.
+- **In-process tools.** The 23 tools are the same functions as the MCP servers, but called directly (`app/tools/registry.py`), so a tool call takes milliseconds instead of ~10 s. To go back to stdio MCP, set `AGENT_TOOL_MODE=mcp`; in that mode team scoping isn't enforced.
+
+New tools (`app/mcp_server/planning_tool.py`; the simulations never save anything):
+
+| Tool | What it does |
+| --- | --- |
+| `simulate_risk` | What-if: remove shifts (`remove_shift_ids`) and/or change features (`{"overtime_hours_30d": "-10"}`), then compare baseline and scenario band and score. Removing a future shift projects to that date. |
+| `review_upcoming_roster` | Projects each team member's risk N days ahead on the planned rota; flags who moves up a band |
+| `list_shifts` | Rota with `shift_id` and weekday, to resolve "Thursday's night shift" |
+| `suggest_shift_cover` / `reassign_shift`* | Free colleagues (11 h rest preferred, HIGH/CRITICAL excluded) / move the shift, notify both people |
+| `list_leave_requests` / `review_leave_request` / `decide_leave_request`* | Leave with risk now, if rejected, and after the leave / approve or reject |
+| `suggest_buddy` / `assign_buddy`* | Buddy match on shift overlap, role and capacity, never showing candidates' risk / assign |
+| `search_wellbeing_guidance` | Searches `app/knowledge/wellbeing_guidance.md` (prototype guidance: replace it with approved policy) |
+
+\* needs the manager's approval.
+
+## Daily briefing
+
+`POST /briefing/run` (`{"rescore": false}`) builds the caller's briefing. It covers who changed band since the previous scoring and why, who is still HIGH/CRITICAL, return-to-work guideline breaches and open follow-ups. Gemini writes it, with a template fallback. `GET /briefing/latest` returns the last one. `rescore: true` first re-runs and saves the team's risk scores, like the daily batch. With `BRIEFING_ENABLED=true`, every manager's briefing is built at `BRIEFING_HOUR_UTC` each day; `BRIEFING_SEND_EMAIL=true` also emails it. Briefings are kept in memory.
+
+## Real-time bell
+
+After the agent records an intervention, moves a shift, decides leave, assigns a buddy or builds a briefing, it calls Django `POST /api/internal/notify/` with header `X-Agent-Key: <AGENT_INTERNAL_KEY>`. Django pushes the event on `ws/notifications/`, and the bell (`NotificationBell.tsx`) reloads at once instead of waiting for its 30 s poll. The key defaults to the same local value on both sides; set `AGENT_INTERNAL_KEY` in both `.env` files outside a local demo.
+
 ## How it fits with the other services
 
 ```
-PowerPioneer-Frontend (5173) ──REST──> PowerPioneer-Backend-Core (Django, 8000) ──┐
-                                                                                  ├──> Supabase Postgres
-Any client ──POST /agent/invoke──> langgraph-agent (FastAPI, 8001)                │
-                                     └─ Gemini ⇄ MCP tools (stdio) ──psycopg──────┘
+PowerPioneer-Frontend (5173) ──REST / WS──> PowerPioneer-Backend-Core (Django, 8000) ──┐
+     │                                            ▲ /api/internal/notify/ (bell push)  ├──> Supabase Postgres
+     └─ /agent/stream, /checkin, /nudges, /briefing ──> langgraph-agent (FastAPI, 8001) │
+                                     └─ Gemini ⇄ in-process tools ──psycopg─────────────┘
                                                       └─ XGBoost model (PowerPioneer-AI/model_artifacts)
 ```
 
-- The agent does not call the Django API. It writes straight to the shared Supabase tables, so its results show up in the backend API and the frontend without any extra wiring.
+- The agent writes straight to the shared Supabase tables, so its results show up in the backend API and the frontend without any extra wiring. It calls Django only to verify logins and to push bell notifications.
 - Risk predictions are saved with `model_name = 'XGBOOST'`. The Admin → Risk page and `/api/risk-predictions/` show them.
 - Check-in questions are saved with `generated_for_employee_id`, so they appear in that employee's pending check-ins (`/api/questions/pending/`). The employee's answers become the model's `wellbeing_score` on the next run.
 - Interventions show in `/api/interventions/` and Django admin.
@@ -152,7 +189,7 @@ How the features are computed:
    ```
    .venv\Scripts\python -m uvicorn app.main:app --host 127.0.0.1 --port 8001
    ```
-   At startup the log should list 12 MCP tools. Swagger is at `http://127.0.0.1:8001/docs`.
+   At startup the log should list 23 in-process tools. Swagger is at `http://127.0.0.1:8001/docs`.
 
 4. **Optional test UI.** In `frontend/med-agent`, run `npm install`, then `npm run dev`. It calls `http://localhost:8001/agent/invoke`, or `VITE_AGENT_API_URL` if that is set.
 
@@ -170,7 +207,7 @@ How the features are computed:
 }
 ```
 
-Response: `{"response": "<answer>", "token_usage": "..."}`.
+Send the Django access token as `Authorization: Bearer <token>` (or set `AGENT_REQUIRE_AUTH=false` for local curl tests, which runs as HR). Response: `{"response": "<answer>", "token_usage": "...", "pending_approval": null}`.
 
 The conversation memory is kept per `session_id`, in memory only, so it is lost on restart. Reuse the same `session_id` for follow-up questions.
 
@@ -216,5 +253,5 @@ The agent asks before taking outward or bulk actions the user didn't request, su
 | `Skipped: ... no shifts` | The employee has no shifts in the 30 days before the date. This is expected for managers. |
 | `SMTP authentication failed` | Use the full Gmail address as `SMTP_USERNAME` and an app password |
 | Port 8000 already in use | The Django backend is running there. Start the agent on 8001. |
-| Each tool call takes about 10 s | Each MCP call starts its server process and loads the model or opens a DB connection. This is expected. |
+| Each tool call takes about 10 s | `AGENT_TOOL_MODE=mcp` is set: each MCP call starts a server process. Remove it to use the in-process tools. |
 | `503 UNAVAILABLE ... high demand` from Gemini | Google-side overload. Retry later; the agent returns the error text instead of an answer. |

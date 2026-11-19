@@ -175,6 +175,10 @@ SPECTACULAR_SETTINGS = {
 # ---------------------------------------------------------------------------
 CHANNEL_LAYERS = {"default": {"BACKEND": "channels.layers.InMemoryChannelLayer"}}
 
+# Shared secret the AI agent sends (X-Agent-Key) to POST /api/internal/notify/. Must match AGENT_INTERNAL_KEY in
+# PowerPioneer-AI/langgraph-agent/.env. The default only suits local demos; set a real value anywhere else.
+AGENT_INTERNAL_KEY = os.environ.get("AGENT_INTERNAL_KEY", "shiftguard-local-agent-key")
+
 # ---------------------------------------------------------------------------
 # Domain settings
 # ---------------------------------------------------------------------------

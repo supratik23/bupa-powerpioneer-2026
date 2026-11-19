@@ -2,7 +2,9 @@ from datetime import datetime, timedelta, timezone
 from fastmcp import FastMCP
 from psycopg.types.json import Jsonb
 from config import settings
+from services.access_scope import team_filter_sql
 from services.db_service import SupabaseDBConnectionManager
+from services.notify_service import notify_employee_async
 from services.shiftguard_repository import (
     INTERVENTION_ACTION_TYPES, INTERVENTION_STATUSES, ToolInputError, dumps, latest_xgboost_prediction,
     resolve_employee,
@@ -67,7 +69,7 @@ def create_intervention(employee: str, action_type: str, reason: str, target_emp
 
             target_id = None
             if target_employee.strip():
-                target_id = resolve_employee(db, target_employee)["employee_id"]
+                target_id = resolve_employee(db, target_employee, scoped=False)["employee_id"]
             elif action_type in MANAGER_ACTIONS:
                 target_id = emp["manager_employee_id"]
                 if not target_id:
@@ -122,6 +124,11 @@ def create_intervention(employee: str, action_type: str, reason: str, target_emp
             )
             db.connection.commit()
             created = db.fetch_one(INTERVENTION_SELECT + " WHERE i.intervention_id = %s", (row["intervention_id"],))
+        if target_id and action_status in ("PENDING", "IN_PROGRESS", "COMPLETED"):
+            notify_employee_async(target_id, {
+                "kind": "intervention", "intervention_id": str(row["intervention_id"]), "action_type": action_type,
+                "employee_id": str(emp["employee_id"]), "employee_name": f"{emp['first_name']} {emp['last_name']}",
+            })
         return dumps({"created": True, "intervention": created})
     except ToolInputError as e:
         return f"Error: {e}"
@@ -180,7 +187,8 @@ def list_interventions(employee: str = "", action_status: str = "", limit: int =
     """
     try:
         limit = max(1, min(int(limit), 100))
-        where, params = [], []
+        team_sql, params = team_filter_sql("e")
+        where = [team_sql.removeprefix(" AND ")] if team_sql else []
         with SupabaseDBConnectionManager() as db:
             if employee.strip():
                 where.append("i.employee_id = %s")

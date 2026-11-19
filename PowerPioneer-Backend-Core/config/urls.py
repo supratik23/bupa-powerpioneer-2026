@@ -1,6 +1,7 @@
 from django.contrib import admin
 from django.urls import include, path
 from django.views.generic import RedirectView
+from chat.views import AgentNotifyView
 from drf_spectacular.views import (
     SpectacularAPIView,
     SpectacularRedocView,
@@ -16,6 +17,8 @@ urlpatterns = [
     path("api/redoc/", SpectacularRedocView.as_view(url_name="schema"), name="redoc"),
     # API
     path("api/auth/", include("employees.auth_urls")),
+    # Called by the AI agent to push bell notifications (shared X-Agent-Key)
+    path("api/internal/notify/", AgentNotifyView.as_view(), name="agent-notify"),
     path("api/", include("employees.urls")),
     path("api/", include("rostering.urls")),
     path("api/", include("surveys.urls")),
