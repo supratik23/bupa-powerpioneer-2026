@@ -92,10 +92,10 @@ if not os.environ.get("SUPABASE_DB_PASSWORD"):
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": os.environ.get("SUPABASE_DB_NAME", "postgres"),
-        "USER": os.environ.get("SUPABASE_DB_USER", "postgres.lzxnflyjcjchytjxzobz"),
+        "NAME": os.environ.get("SUPABASE_DB_NAME"),
+        "USER": os.environ.get("SUPABASE_DB_USER"),
         "PASSWORD": os.environ["SUPABASE_DB_PASSWORD"],
-        "HOST": os.environ.get("SUPABASE_DB_HOST", "aws-1-ap-south-1.pooler.supabase.com"),
+        "HOST": os.environ.get("SUPABASE_DB_HOST"),
         "PORT": os.environ.get("SUPABASE_DB_PORT", "5432"),
     }
 }
