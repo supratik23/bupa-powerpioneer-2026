@@ -3,6 +3,9 @@
 ShiftGuard is a local web application with a React/Vite frontend, a Django REST backend, and an optional FastAPI AI service.
 The backend connects to the team's hosted Supabase PostgreSQL database; you do not need to install PostgreSQL locally.
 
+## Hosted prototype link:
+[Azure hosted usable protoype link](https://powerpioneer-frontend-cga7d5auhwh7fjcb.southindia-01.azurewebsites.net/)
+
 ## Prerequisites
 
 Install these before starting:
